@@ -10,12 +10,12 @@
   "description": "OGXM binary codec — read/write .gvab match files",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/ngvlamis/gammonview-analysis.git",
+    "url": "git+https://github.com/gammonview/gammonview-analysis.git",
     "directory": "gvformat-js"
   },
-  "homepage": "https://github.com/ngvlamis/gammonview-analysis/tree/main/gvformat-js",
+  "homepage": "https://github.com/gammonview/gammonview-analysis/tree/main/gvformat-js",
   "bugs": {
-    "url": "https://github.com/ngvlamis/gammonview-analysis/issues"
+    "url": "https://github.com/gammonview/gammonview-analysis/issues"
   },
   "publishConfig": {
     "access": "public"

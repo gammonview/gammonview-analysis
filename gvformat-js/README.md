@@ -7,7 +7,7 @@ OGIDs. **No engine, no WebAssembly, no build step.** One runtime
 dependency (`pako`, for zlib).
 
 This is the browser half of
-[gammonview-analysis](https://github.com/ngvlamis/gammonview-analysis): Python
+[gammonview-analysis](https://github.com/gammonview/gammonview-analysis): Python
 writes `.gvab` server-side, this reads it client-side. It is an ESM mirror of the
 Python `gvformat` package and **the definitive copy of the JavaScript** — the
 port is maintained here, not downstream.

@@ -7,7 +7,7 @@
 # must be done before the first run, because the project does not exist yet:
 #
 #     PyPI project name : gammonview
-#     Owner             : ngvlamis
+#     Owner             : gammonview
 #     Repository name   : gammonview-analysis
 #     Workflow name     : publish.yml
 #     Environment name  : pypi

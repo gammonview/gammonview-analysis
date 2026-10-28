@@ -31,9 +31,9 @@ classifiers = [
 dependencies = []
 
 [project.urls]
-Homepage = "https://github.com/ngvlamis/gammonview-analysis"
-Repository = "https://github.com/ngvlamis/gammonview-analysis"
-Issues = "https://github.com/ngvlamis/gammonview-analysis/issues"
+Homepage = "https://github.com/gammonview/gammonview-analysis"
+Repository = "https://github.com/gammonview/gammonview-analysis"
+Issues = "https://github.com/gammonview/gammonview-analysis/issues"
 
 [project.optional-dependencies]
 # The bgsage-powered analysis layer (`gvanalysis`: game_eval, match, position

@@ -6,7 +6,7 @@ you need to know before sending one.
 ## Getting set up
 
 ```bash
-git clone https://github.com/ngvlamis/gammonview-analysis
+git clone https://github.com/gammonview/gammonview-analysis
 cd gammonview-analysis
 uv sync          # gvformat + gvanalysis + bgsage + everything the tests need
 ```

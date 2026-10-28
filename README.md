@@ -1,13 +1,13 @@
 <p align="center">
-  <img src="https://raw.githubusercontent.com/ngvlamis/gammonview-analysis/main/assets/logo.png"
+  <img src="https://raw.githubusercontent.com/gammonview/gammonview-analysis/main/assets/logo.png"
        alt="" width="104" height="104">
 </p>
 
 <h1 align="center">GammonView</h1>
 
 <p align="center">
-  <a href="https://github.com/ngvlamis/gammonview-analysis/actions/workflows/ci.yml"><img src="https://github.com/ngvlamis/gammonview-analysis/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
-  <a href="https://github.com/ngvlamis/gammonview-analysis/actions/workflows/engine.yml"><img src="https://github.com/ngvlamis/gammonview-analysis/actions/workflows/engine.yml/badge.svg" alt="engine"></a>
+  <a href="https://github.com/gammonview/gammonview-analysis/actions/workflows/ci.yml"><img src="https://github.com/gammonview/gammonview-analysis/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
+  <a href="https://github.com/gammonview/gammonview-analysis/actions/workflows/engine.yml"><img src="https://github.com/gammonview/gammonview-analysis/actions/workflows/engine.yml/badge.svg" alt="engine"></a>
   <a href="https://www.python.org/downloads/"><img src="https://img.shields.io/badge/python-3.10%2B-blue.svg" alt="Python 3.10+"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/licence-MIT-green.svg" alt="Licence: MIT"></a>
 </p>
@@ -53,7 +53,7 @@ the environment — it installs both packages in editable mode, plus bgsage and
 the test dependencies:
 
 ```bash
-git clone https://github.com/ngvlamis/gammonview-analysis.git
+git clone https://github.com/gammonview/gammonview-analysis.git
 cd gammonview-analysis
 uv sync
 uv run python tests/run_all.py --fast     # ~3s, no engine needed
