@@ -29,7 +29,7 @@ from pathlib import Path
 _REPO_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(_REPO_ROOT))
 
-from gvanalysis.position import EVAL_LEVELS, analyze_position
+from gvanalysis.position import EVAL_LEVELS, analyze_position, parse_position_id
 
 _checks = 0
 _failures: list[str] = []
@@ -226,6 +226,69 @@ def main() -> int:
     check([a["notation"] for a in few["alternatives"]]
           == [a["notation"] for a in many["alternatives"][:5]],
           "a smaller cap truncates the same ranking, it does not reorder it")
+
+    print("11. the Jacoby rule is the caller's, and money-only")
+    # A blitz: three checkers on the bar against a closed board. Gammons are
+    # most of the wins, so with the cube centred the rule decides the cube:
+    # under Jacoby a gammon counts single and holding is worth at most a point,
+    # without it holding is worth far more than the point a pass gives.
+    blitz = "XGID=cBBBBBB-C----------cccc---:0:0:1:00:0:0:0:0:10"
+    jac = analyze_position(blitz, level="1ply", jacoby=True)
+    nojac = analyze_position(blitz, level="1ply", jacoby=False)
+    check(jac["jacoby"] is True and nojac["jacoby"] is False,
+          "the reply says which rule was applied")
+    check(jac["cube"]["no_double_equity"] <= 1.0 + 1e-9,
+          f"under Jacoby, holding is worth at most a point (got {jac['cube']['no_double_equity']})")
+    check(nojac["cube"]["no_double_equity"] > 1.2,
+          f"without it, gammons make holding worth more (got {nojac['cube']['no_double_equity']})")
+    match = analyze_position(
+        "XGID=cBBBBBB-C----------cccc---:0:0:1:00:0:0:0:7:10", level="1ply")
+    check(match["jacoby"] is False, "a match position reports no Jacoby, however asked")
+
+    print("12. a money XGID's rules field is the Jacoby rule, not Crawford")
+    # Field 8 at money is "Jacoby+2xBeaver" (XG's own spec; see parse_xgid).
+    # An OGID has no such field.
+    said_on = parse_position_id(blitz.replace(":0:0:0:0:10", ":0:0:1:0:10"))
+    said_off = parse_position_id(blitz)
+    check(said_on.jacoby is True and said_on.is_crawford is False,
+          "a money '1' is Jacoby, and no Crawford game")
+    check(parse_position_id(blitz.replace(":0:0:0:0:10", ":0:0:3:0:10")).jacoby is True,
+          "Jacoby and beavers together ('3') is still Jacoby")
+    check(said_off.jacoby is False, "a money '0' states the rule is off")
+    check(parse_position_id(OPENING_31_OGID).jacoby is None, "an OGID says nothing")
+    m = parse_position_id("XGID=-b----E-C---eE---c-e----B-:0:0:1:31:0:0:1:7:10")
+    check(m.is_crawford is True and m.jacoby is None, "at a match score '1' is still Crawford")
+    check(analyze_position(blitz.replace(":0:0:0:0:10", ":0:0:1:0:10"), level="1ply")["jacoby"] is True
+          and analyze_position(blitz, level="1ply")["jacoby"] is False,
+          "left unset, the analysis follows what the XGID says")
+    check(analyze_position(OPENING_CUBE_XGID.replace("XGID=", ""), level="1ply")["jacoby"] is False,
+          "(an XGID written with '0' there, as most are, says off)")
+
+    print("13. beavers: the caller's, or the XGID's, and money-only")
+    # The blitz from the other side: three checkers on the bar against a
+    # closed board, and it is their turn. A double here is a gift, so if the
+    # rules allow it the opponent beavers -- which doubles the take's equity.
+    victim = "XGID=cBBBBBB-C----------cccc---:0:0:-1:00:0:0:0:0:10"
+    allowed = analyze_position(victim, level="1ply", beaver=True)
+    forbidden = analyze_position(victim, level="1ply", beaver=False)
+    check(allowed["beaver"] is True and forbidden["beaver"] is False,
+          "the reply says which rule was applied")
+    check(allowed["cube"]["is_beaver"] and not forbidden["cube"]["is_beaver"],
+          "a wrong double is beavered only when beavers are allowed")
+    check(abs(allowed["cube"]["double_take_equity"]
+              - 2 * forbidden["cube"]["double_take_equity"]) < 1e-3,
+          f"and the beaver doubles the take's equity (got {allowed['cube']['double_take_equity']} "
+          f"vs {forbidden['cube']['double_take_equity']})")
+    check(parse_position_id(victim.replace(":0:0:0:0:10", ":0:0:2:0:10")).beaver is True
+          and parse_position_id(victim).beaver is False
+          and parse_position_id(OPENING_31_OGID).beaver is None,
+          "an XGID's beaver bit is read; an OGID says nothing")
+    check(analyze_position(victim.replace(":0:0:0:0:10", ":0:0:2:0:10"), level="1ply")["cube"]["is_beaver"]
+          and not analyze_position(victim, level="1ply")["cube"]["is_beaver"],
+          "left unset, the analysis follows the XGID")
+    check(analyze_position(
+        "XGID=cBBBBBB-C----------cccc---:0:0:-1:00:0:0:0:7:10", level="1ply")["beaver"] is False,
+          "a match position reports no beavers")
 
     print(f"\n{_checks - len(_failures)}/{_checks} checks passed.")
     if _failures:

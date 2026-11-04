@@ -13,6 +13,31 @@ when the repository was opened; they are kept because they record why things
 are the way they are — particularly the breaking changes and the measurements
 behind several design decisions. Dates are the tag dates.
 
+## Unreleased
+
+**`analyze_position` takes the money rules: Jacoby and beavers** *(added)*
+
+`analyze_position(..., jacoby=None, beaver=None)` and `gvan-position
+--jacoby/--no-jacoby --beaver/--no-beaver`. Until now every money position was
+analysed under bgsage's defaults, Jacoby on and beavers allowed, with no way to
+ask otherwise. A bool chooses the rule; left unset it is the id's own. The reply
+gains `jacoby` and `beaver`, the rules actually applied, both `False` at any
+match score, where bgsage ignores them. With beavers allowed, a wrong double is
+answered with a beaver and the cube's `double_take_equity` is the beaver's
+(twice the take's), with `is_beaver` set, as it always was.
+
+**A money XGID's rules field is read as the rules** *(fixed)*
+
+At money, the XGID field that holds the Crawford flag in a match holds the
+rules instead -- "Jacoby+2xBeaver", in XG's own spec (eXtreme Gammon 2 Help,
+"XGID"), now quoted in `parse_xgid`'s docstring. It was read as Crawford in both
+cases, so a money "1" claimed a Crawford game and the Jacoby rule it stated was
+lost, and so was the beaver bit. `PositionState` gains `jacoby` and `beaver`
+(None for an OGID, which cannot say, and at a match score). Behaviour change:
+unset, both follow the XGID, so a money XGID with "0" there -- which states
+"No Jacoby, no Beaver" -- is now analysed with neither, where it was analysed
+with both. An OGID is still analysed with both.
+
 ## 3.1.0 — 2026-10-22
 
 **`engine_build` names the gammonview version that ran the analysis** *(changed)*

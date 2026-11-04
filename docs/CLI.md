@@ -174,6 +174,8 @@ position shape is matched (an XGID never matches it).
 | Flag | Effect |
 |---|---|
 | `--level LEVEL` | `1ply`, `2ply`, `3ply`, `4ply`, `truncated1/2/3`, `rollout`. Default `3ply`. |
+| `--jacoby` / `--no-jacoby` | Money games: analyse with or without the Jacoby rule (gammons count single while the cube is centred). Default: what the id says — an XGID's field 8 — and on for an OGID, which has no field for it. Ignored at a match score. |
+| `--beaver` / `--no-beaver` | Money games: allow or forbid beavers. Default as for `--jacoby`: the XGID's field 8, allowed for an OGID. Ignored at a match score. |
 | `--no-progress` | Suppress the rollout progress bar. |
 
 At a rollout level a progress bar is drawn on **stderr**, so piping the report

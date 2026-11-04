@@ -58,6 +58,12 @@ class PositionState:
     #: perspective either way; this is what maps a move back to the absolute
     #: point numbering the OGXM step form (and every consumer of it) uses.
     mover_is_white: bool = True
+    #: The money-game Jacoby rule, when the id says: an XGID's rules field
+    #: does at money, an OGID never does (None). Always None at a match score.
+    jacoby: bool | None = None
+    #: Whether beavers are allowed, the other half of that field; None in the
+    #: same cases.
+    beaver: bool | None = None
 
 
 #: Back-compat alias -- this was XGID-only before OGID input was added.
@@ -65,6 +71,32 @@ XGIDState = PositionState
 
 
 def parse_xgid(xgid: str) -> PositionState:
+    """Parse an XGID into the mover-perspective state bgsage analyses.
+
+    The XGID is eXtreme Gammon's, specified in its own help ("XGID", eXtreme
+    Gammon 2 Help rev. 1.01, 2011, pp. 145-146) as ten colon-separated fields:
+
+      1. Position   26 chars: the top player's bar, points 1-24 from the
+                    bottom player's side, the bottom player's bar. '-' empty,
+                    'A'-'P' 1-16 bottom-player checkers, 'a'-'p' top-player.
+      2. Cube       the cube is 2**value.
+      3. Cube pos.  1 bottom player owns it, 0 centred, -1 top player.
+      4. Turn       1 the bottom player's turn, -1 the top player's.
+      5. Dice       "00" to roll or double, "D" doubled (take or drop), "B"
+                    beavered, "R" raccooned, or the two dice ("35").
+      6. Score 1    the bottom player's.
+      7. Score 2    the top player's.
+      8. Crawford, Jacoby
+                    "Match play: 1 means the current game is Crawford, 0 means
+                    the current game is not played with the Crawford rule.
+                    Unlimited games: the value is a Jacoby+2xBeaver" --
+                    0 none, 1 Jacoby, 2 beaver, 3 both.
+      9. Match length  0 for unlimited games (money).
+     10. Max cube   2**value.
+
+    (GNU Backgammon's ``SetXGID`` reads field 8 the same way.) Field 10 is
+    optional here, as it is in ids found in the wild.
+    """
     s = xgid.strip()
     if s.upper().startswith("XGID="):
         s = s[5:]
@@ -120,7 +152,13 @@ def parse_xgid(xgid: str) -> PositionState:
     die2 = int(dice_str[1]) if len(dice_str) > 1 and dice_str[1].isdigit() else 0
 
     match_len = int(parts[8]) if parts[8].lstrip("-").isdigit() else 0
-    is_crawford = parts[7] == "1"
+    # Field 8 is two fields in one (see the docstring): the Crawford flag in a
+    # match, Jacoby + 2 x Beaver at money -- so a money "1" is the Jacoby rule,
+    # not a Crawford game money cannot have.
+    rules = int(parts[7]) if parts[7].isdigit() else 0
+    is_crawford = match_len > 0 and rules == 1
+    jacoby = bool(rules & 1) if match_len <= 0 else None
+    beaver = bool(rules & 2) if match_len <= 0 else None
 
     if match_len > 0:
         # Scores are written player 1 (White) first; `away1` is the MOVER's.
@@ -141,7 +179,7 @@ def parse_xgid(xgid: str) -> PositionState:
 
     return PositionState(
         board, die1, die2, cube_value, cube_owner, away1, away2, is_crawford,
-        mover_is_white=mover_is_white,
+        mover_is_white=mover_is_white, jacoby=jacoby, beaver=beaver,
     )
 
 
@@ -232,6 +270,8 @@ def analyze_position(
     max_alternatives: int = MAX_ALTERNATIVES,
     analyzer=None,
     on_progress: "Callable[[int, int, str], None] | None" = None,
+    jacoby: bool | None = None,
+    beaver: bool | None = None,
 ) -> dict:
     """Analyze one position and return the result as an OGXM-shaped dict.
 
@@ -252,6 +292,22 @@ def analyze_position(
     ``analyzer`` lets a caller pass a prebuilt ``BgBotAnalyzer`` (constructing
     one costs ~40ms, worth reusing across requests); it must have been built at
     ``level``, which is reported back as ``eval_level``.
+
+    ``jacoby`` is the money-game rule the position is played under: gammons
+    and backgammons count single while the cube is centred. Left as ``None``
+    it is the id's own: a money XGID states it in its rules field, and an OGID,
+    which cannot, is read under the rule (bgsage's own default). A bool
+    overrides the id. It means nothing at a match score, where bgsage ignores
+    it, and the reply's ``jacoby`` reports the rule actually applied -- so it
+    is ``False`` for every match position.
+
+    ``beaver`` is the same for beavers: whether a player doubled may redouble
+    at once and keep the cube. Left as ``None`` it is the XGID's own beaver bit,
+    and allowed for an OGID (bgsage's default). Allowed, a wrong double --
+    double/take below zero -- is answered with a beaver, and the cube's
+    ``double_take_equity`` is that beaver's (twice the take's), with
+    ``is_beaver`` set. The reply's ``beaver`` is the rule applied, ``False`` at
+    a match score.
 
     ``on_progress(completed, total, phase)`` reports a rollout's progress; it is
     never called at the full-width levels, which return too fast to report.
@@ -280,6 +336,13 @@ def analyze_position(
         away2=state.away2,
         is_crawford=state.is_crawford,
     )
+    money = not state.away1 and not state.away2
+    if jacoby is None:
+        jacoby = state.jacoby if state.jacoby is not None else True
+    if beaver is None:
+        beaver = state.beaver if state.beaver is not None else True
+    match_kwargs["jacoby"] = jacoby
+    match_kwargs["beaver"] = beaver
 
     started = time.perf_counter()
     result: dict = {
@@ -292,6 +355,8 @@ def analyze_position(
         "away1": state.away1,
         "away2": state.away2,
         "is_crawford": state.is_crawford,
+        "jacoby": bool(jacoby) and money,
+        "beaver": bool(beaver) and money,
         "dice": [state.die1, state.die2] if is_checker else None,
     }
 
@@ -432,6 +497,17 @@ def main() -> None:
         "--level", default="3ply", choices=EVAL_LEVELS,
         help="Eval level (default: 3ply)")
     parser.add_argument(
+        "--jacoby", action=argparse.BooleanOptionalAction, default=None,
+        help="Money games: analyse with or without the Jacoby rule, gammons "
+             "counting single while the cube is centred. Default: what the id "
+             "says -- an XGID's rules field -- and on for an OGID, which cannot "
+             "say. Ignored at a match score")
+    parser.add_argument(
+        "--beaver", action=argparse.BooleanOptionalAction, default=None,
+        help="Money games: allow or forbid beavers. Default: what the id says "
+             "-- an XGID's rules field -- and allowed for an OGID. Ignored at a "
+             "match score")
+    parser.add_argument(
         "--no-progress", action="store_true",
         help="Suppress the rollout progress bar (it is stderr-only and already "
              "a no-op when stderr is not a TTY)")
@@ -439,7 +515,13 @@ def main() -> None:
 
     fmt = "OGID" if looks_like_ogid(args.position_id) else "XGID"
     state = parse_position_id(args.position_id)
-    context = "money game" if state.away1 == 0 else f"match {state.away1}-away vs {state.away2}-away"
+    jacoby = args.jacoby if args.jacoby is not None else (
+        state.jacoby if state.jacoby is not None else True)
+    beaver = args.beaver if args.beaver is not None else (
+        state.beaver if state.beaver is not None else True)
+    context = ("money game, " + ("Jacoby" if jacoby else "no Jacoby")
+               + (", beavers" if beaver else ", no beavers")
+               if state.away1 == 0 else f"match {state.away1}-away vs {state.away2}-away")
     print(f"Position ({fmt}): cube={state.cube_value} ({state.cube_owner})  {context}"
           + ("  [Crawford]" if state.is_crawford else ""))
 
@@ -468,7 +550,8 @@ def main() -> None:
 
     try:
         result = analyze_position(args.position_id, level=args.level,
-                                  on_progress=_progress)
+                                  on_progress=_progress, jacoby=jacoby,
+                                  beaver=beaver)
     finally:
         if bar is not None:
             bar.clear()
