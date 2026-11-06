@@ -13,6 +13,24 @@ when the repository was opened; they are kept because they record why things
 are the way they are — particularly the breaking changes and the measurements
 behind several design decisions. Dates are the tag dates.
 
+## Unreleased
+
+**A money session is analysed under the rules it was played under** *(fixed)*
+
+`analyze_file` read a session's Jacoby and beaver rules and wrote them into the
+summary, but passed neither to the engine, so every money session was judged
+under bgsage's defaults, both on, whatever the file said. A session played
+without Jacoby had its gammons counted with the cube centred, which moves cube
+verdicts, checker equities, error sizes and PR across the whole session; one
+played without beavers had a wrong double answered with a beaver. Every engine
+call a decision makes now gets the session's rules, and so does `fill_luck`.
+Match play is unaffected: it has neither rule.
+
+Behaviour change: a money session whose file says Jacoby or beavers are off is
+now analysed that way. The money golden, a session with neither, is
+regenerated; its first game no longer has a missed double, which the v2 format
+cases now write in rather than find.
+
 ## 3.2.0 — 2026-11-04
 
 **`analyze_position` takes the money rules: Jacoby and beavers** *(added)*

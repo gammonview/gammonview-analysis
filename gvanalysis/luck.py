@@ -101,6 +101,8 @@ def fill_luck(ogxm: dict, *, analyzer=None, on_progress=None, verbose: bool = Fa
         from bgsage import BgBotAnalyzer
         analyzer = BgBotAnalyzer(eval_level=LUCK_LEVEL, cubeful=True)
 
+    jacoby = bool(ogxm.get("jacoby"))
+    beaver = bool(ogxm.get("beaver"))
     filled = 0
     for done, (ply, wanting) in enumerate(todo, start=1):
         try:
@@ -121,6 +123,8 @@ def fill_luck(ogxm: dict, *, analyzer=None, on_progress=None, verbose: bool = Fa
             state.cube_value, cube_owner,
             state.away1, state.away2, state.crawford,
             analyzer, verbose=verbose, hint_eq=hint,
+            # An OGID carries no money rules; the match states them.
+            jacoby=jacoby, beaver=beaver,
         )
         if luck is not None:
             for analysis in wanting:

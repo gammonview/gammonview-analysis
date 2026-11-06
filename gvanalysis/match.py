@@ -221,7 +221,7 @@ _WORKER: dict = {}
 
 def _worker_init(base_level, base_level_cube, mid_level_checker, mid_level_cube, level,
                  level_cube, thresholds, resign_errors, all_moves, count_illegal,
-                 level_display, engine_threads, verbose) -> None:
+                 level_display, engine_threads, verbose, rules) -> None:
     # First, before any weights are loaded: from here on this process holds
     # hundreds of megabytes, and if the parent dies hard nothing else will ever
     # tell it to let go. See `parentwatch`.
@@ -260,6 +260,7 @@ def _worker_init(base_level, base_level_cube, mid_level_checker, mid_level_cube,
         level_display=level_display,
         level_display_cube=(None if level_cube is None
                             else _LEVEL_DISPLAY.get(level_cube, level_cube)),
+        jacoby=rules[0], beaver=rules[1],
     )
 
 
@@ -606,6 +607,7 @@ def analyze_ogxm(
                               level=level, level_cube=level_cube,
                               all_moves=all_moves,
                               count_illegal=count_illegal,
+                              jacoby=jacoby_rule, beaver=beaver_rule,
                               progress=advance)
             game_results.append(r)
             if not quiet:
@@ -625,6 +627,7 @@ def analyze_ogxm(
             base_level_r, base_level_cube, mid_level_checker, mid_level_cube, level,
             level_cube, (close_checker, close_cube, err_checker, err_cube), p.resign_errors, all_moves,
             count_illegal, _LEVEL_DISPLAY.get(level, level), worker_threads, verbose,
+            (jacoby_rule, beaver_rule),
         )
         buckets: "list[list[tuple[int, object]]]" = [[] for _ in recons]
         with ProcessPoolExecutor(max_workers=n_jobs, initializer=_worker_init,

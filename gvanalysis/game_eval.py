@@ -140,6 +140,8 @@ def _compute_luck(
     verbose: bool = False,
     postroll_eq: float | None = None,
     hint_eq: float | None = None,
+    jacoby: bool = True,
+    beaver: bool = True,
 ) -> tuple[float, float] | tuple[None, None]:
     """Return (luck, preroll_equity).
 
@@ -170,6 +172,9 @@ def _compute_luck(
     roll, given I am the one on roll", which silently discards the roll-off that
     decided *who* is on roll. Positive luck means the actual dice were above
     average for the mover.
+
+    `jacoby` and `beaver` are the session's money rules, as for every other
+    engine call in a match; bgsage ignores them at a match score.
     """
     if list(board) == list(STARTING_BOARD):
         preroll = _opening_baseline(away1, away2, cube_value, is_crawford)
@@ -179,6 +184,7 @@ def _compute_luck(
                     board, die1, die2,
                     cube_value=cube_value, cube_owner=cube_owner,
                     away1=away1, away2=away2, is_crawford=is_crawford,
+                    jacoby=jacoby, beaver=beaver,
                 )
                 moves = list(result.moves)
                 postroll_eq = float(moves[0].equity) if moves else 0.0
@@ -197,6 +203,7 @@ def _compute_luck(
                 board, d1, d2,
                 cube_value=cube_value, cube_owner=cube_owner,
                 away1=away1, away2=away2, is_crawford=is_crawford,
+                jacoby=jacoby, beaver=beaver,
             )
             moves = list(result.moves)
         except Exception as e:
@@ -273,6 +280,18 @@ class _EvalCtx:
     # pass's 2T.
     analyzer_cube: "BgBotAnalyzer | None" = None
     level_display_cube: str | None = None
+    # The session's money rules. Defaulted to bgsage's own, both on, but a
+    # match passes what its file states: until 3.3.0 nothing did, and every
+    # money session was judged under Jacoby and beavers whatever it was played
+    # under.
+    jacoby: bool = True
+    beaver: bool = True
+
+    def rules(self, dec: dict) -> dict:
+        """The money rules for one decision's engine calls, as keywords.
+        Match play has neither, as `checker_eval.checker_play` also says."""
+        money = not dec["away1"] and not dec["away2"]
+        return {"jacoby": self.jacoby and money, "beaver": self.beaver and money}
 
     @property
     def cube_analyzer(self) -> "BgBotAnalyzer":
@@ -397,6 +416,7 @@ def _eval_cube_decision(dec: dict, ctx: _EvalCtx) -> _DecResult:
                 away1=dec["away1"],
                 away2=dec["away2"],
                 is_crawford=dec["is_crawford"],
+                **ctx.rules(dec),
             )
 
         top = ctx.cube_analyzer
@@ -693,14 +713,15 @@ def _eval_resign_decision(dec: dict, ctx: _EvalCtx) -> _DecResult:
                 analyzer, dec["board"], dice[0], dice[1],
                 cube_value=dec["cube_value"], cube_owner=dec["cube_owner"],
                 away1=dec["away1"], away2=dec["away2"], is_crawford=dec["is_crawford"],
-                seed=seen[-1] if seen else None)
+                seed=seen[-1] if seen else None, **ctx.rules(dec))
             seen.append(r)
             best = list(r.moves)[0]
             e_roll, level, probs = float(best.equity), best.eval_level, best.probs
         else:
             r = analyzer.cube_action(
                 dec["board"], cube_value=dec["cube_value"], cube_owner=dec["cube_owner"],
-                away1=dec["away1"], away2=dec["away2"], is_crawford=dec["is_crawford"])
+                away1=dec["away1"], away2=dec["away2"], is_crawford=dec["is_crawford"],
+                **ctx.rules(dec))
             nd = float(r.equity_nd)
             e_roll = max(nd, min(float(r.equity_dt), float(r.equity_dp))) if can_double else nd
             level, probs = r.eval_level, r.probs
@@ -811,6 +832,7 @@ def _eval_checker_decision(dec: dict, ctx: _EvalCtx) -> _DecResult:
                 away1=dec["away1"],
                 away2=dec["away2"],
                 is_crawford=dec["is_crawford"],
+                **ctx.rules(dec),
             )
             forced_moves = list(forced_result.moves)
             if forced_moves:
@@ -849,6 +871,7 @@ def _eval_checker_decision(dec: dict, ctx: _EvalCtx) -> _DecResult:
                 away2=dec["away2"],
                 is_crawford=dec["is_crawford"],
                 force_boards=[dec["board_played"]],
+                **ctx.rules(dec),
             )
             cheap_moves = list(cheap_result.moves)
             if len(cheap_moves) >= 2:
@@ -887,6 +910,7 @@ def _eval_checker_decision(dec: dict, ctx: _EvalCtx) -> _DecResult:
                             force_boards=[dec["board_played"]],
                             seed=seed,
                             seed_window=window,
+                            **ctx.rules(dec),
                         )
 
                     def played_error(move_list) -> float | None:
@@ -999,6 +1023,8 @@ def _eval_checker_decision(dec: dict, ctx: _EvalCtx) -> _DecResult:
                                 away1=dec["away1"],
                                 away2=dec["away2"],
                                 is_crawford=dec["is_crawford"],
+                                # bgsage takes no beaver rule here.
+                                jacoby=ctx.rules(dec)["jacoby"],
                             )
                             played_eq = post.cubeful_equity
                             checker_err = max(0.0, best_eq - played_eq)
@@ -1028,6 +1054,8 @@ def _eval_checker_decision(dec: dict, ctx: _EvalCtx) -> _DecResult:
                                 away1=dec["away1"],
                                 away2=dec["away2"],
                                 is_crawford=dec["is_crawford"],
+                                # bgsage takes no beaver rule here.
+                                jacoby=ctx.rules(dec)["jacoby"],
                             )
                             played_eq = float(post.cubeful_equity)
                             checker_err = max(0.0, best_eq - played_eq)
@@ -1138,6 +1166,7 @@ def _eval_checker_decision(dec: dict, ctx: _EvalCtx) -> _DecResult:
         dec["cube_value"], dec["cube_owner"],
         dec["away1"], dec["away2"], dec["is_crawford"],
         _luck_az, verbose=ctx.verbose,
+        **ctx.rules(dec),
         postroll_eq=None,  # use the 1-ply (luck-level) post-roll, not the preset best_eq,
         hint_eq=_hint,     # so luck is preset-independent (hint_eq still guards sign errors)
     )
@@ -1255,6 +1284,7 @@ def evaluate_game(game: dict, analyzer: BgBotAnalyzer, recon: dict,
                   level: str = "3ply", level_cube: str | None = None,
                   all_moves: bool = False,
                   count_illegal: bool = False,
+                  jacoby: bool = True, beaver: bool = True,
                   progress: "Callable[[], None] | None" = None) -> dict:
     """Evaluate all decisions in one game. Returns per-player error/decision counts and move log.
 
@@ -1262,6 +1292,7 @@ def evaluate_game(game: dict, analyzer: BgBotAnalyzer, recon: dict,
     entry) supplying the decisions and game result; `game` carries only the
     per-game metadata (number, starting scores) used for reporting.
     `progress`, if given, is called once per decision processed (for a bar).
+    `jacoby` and `beaver` are the session's money rules (`_EvalCtx.rules`).
     """
     level_display = _LEVEL_DISPLAY.get(level, level)
     decisions = recon["decisions"]
@@ -1281,6 +1312,7 @@ def evaluate_game(game: dict, analyzer: BgBotAnalyzer, recon: dict,
         analyzer_cube=analyzer_cube,
         level_display_cube=(None if level_cube is None
                             else _LEVEL_DISPLAY.get(level_cube, level_cube)),
+        jacoby=jacoby, beaver=beaver,
     )
 
     results: "list[_DecResult]" = []

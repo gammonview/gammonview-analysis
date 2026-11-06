@@ -50,11 +50,42 @@ BLOCK = {
 }
 
 
+#: Where the cases put the money game's missed double. The engine found one
+#: here until 3.3.0, when the session began to be analysed under the rules it
+#: was played under -- no Jacoby, so gammons count with the cube centred and
+#: the double became a no double. These are format cases, not analysis ones,
+#: so the record is written in rather than hunted for in whatever the engine
+#: finds next.
+MISSED_DOUBLE_AT = (0, 9)
+
+
+def _put_missed_double(doc: dict) -> None:
+    """Turn the cube decision at ``MISSED_DOUBLE_AT`` into a missed double, in
+    the shape the analyzer writes one: the equities swapped so doubling is
+    right, the record beside a ``cube_decision`` with no ``decision`` flag."""
+    gi, pi = MISSED_DOUBLE_AT
+    a = doc["games"][gi]["plies"][pi]["analysis"]
+    if isinstance(a.get("missed_double"), dict):
+        return
+    cd = a["cube_decision"]
+    nd, dt = sorted((cd["no_double_equity"], cd["double_take_equity"]))
+    cd.update(should_double=True, no_double_equity=nd, double_take_equity=dt, action="double_take")
+    cd.pop("decision", None)
+    a["missed_double"] = {
+        "no_double_equity": nd, "double_take_equity": dt,
+        "double_pass_equity": cd["double_pass_equity"],
+        "equity_loss": round(dt - nd, 4), "correct_action": "double",
+        "eval": copy.deepcopy(cd["eval"]), "eval_level": cd["eval_level"],
+    }
+
+
 def golden(stem: str, games: int = 1) -> dict:
     """The first ``games`` games of an analyzed golden, scored as played. Whole
     goldens would be megabytes of fixture for the JavaScript mirror."""
     doc = read_gvab((GOLDEN / f"{stem}.fast.gvab").read_bytes())
     doc["games"] = doc["games"][:games]
+    if stem == MONEY:
+        _put_missed_double(doc)
     scores = [0, 0]
     for g in doc["games"]:
         if g["winner"] in (0, 1):
