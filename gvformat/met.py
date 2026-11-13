@@ -127,7 +127,8 @@ def _me_post(x: int, y: int) -> float:
     return KR_XG2_MET[x - 1][y - 1]
 
 
-def mwc_anchors(away1: int, away2: int, cube_value: int, is_crawford: bool = False) -> tuple[float, float]:
+def mwc_anchors(away1: int, away2: int, cube_value: int, is_crawford: bool = False,
+                table: "MetTable | None" = None) -> tuple[float, float] | None:
     """Return ``(mwc_on_win, mwc_on_loss)`` for the mover (``away1``-away) at
     this score/cube.
 
@@ -145,18 +146,116 @@ def mwc_anchors(away1: int, away2: int, cube_value: int, is_crawford: bool = Fal
 
     Money game (either side already home / non-positive away count) degenerates
     to the trivial (1.0, 0.0) anchors.
+
+    ``table`` is another producer's table, as :func:`met_table` reads it from a
+    block that stores one; ``None`` is ours. Returns ``None`` where ``table``
+    does not reach the score.
     """
     if away1 <= 0 or away2 <= 0:
         return (1.0, 0.0)
     if is_crawford or away1 == 1 or away2 == 1:
         cube = 1 if is_crawford else cube_value  # Crawford game: dead cube
-        me = _me_post
+        me = _me_post if table is None else table.post
     else:
         cube = cube_value
-        me = _me_pre
+        me = _me_pre if table is None else table.pre
+    if table is not None and max(away1, away2) > table.K:
+        return None
     mwc_win = me(away1 - cube, away2)          # mover scored `cube`
     mwc_lose = 1.0 - me(away2 - cube, away1)   # opponent scored `cube`
     return (mwc_win, mwc_lose)
+
+
+# ---------------------------------------------------------------------------
+# The table a block stores (OGXM 2.3, spec 6.6)
+# ---------------------------------------------------------------------------
+#
+# A match block may carry the table its numbers were computed on (``ANAL.met``),
+# cut at K, the most points either side needed at the start. Only the leader's
+# side is stored: ``pre_crawford`` holds P(i, j) for 1 <= i < j <= K at index
+# (j-1)(j-2)/2 + i - 1, its 1-away row being the Crawford game's (or any game's
+# without the rule), and ``post_crawford`` P(1, j) after the Crawford game for
+# j = 2..K. Values are match winning chances, read and written at six places.
+
+#: The largest K our own table can be cut at.
+MET_MAX_AWAY = _N
+
+
+def stored_met(K: int, crawford: bool = True) -> dict | None:
+    """Ours cut at ``K``, as a block stores it: ``{pre_crawford, post_crawford}``
+    (the second only for a match played with the Crawford rule), or ``None``
+    where there is nothing a block may store (K < 2) or our table stops short."""
+    if not isinstance(K, int) or isinstance(K, bool) or K < 2 or K > _N:
+        return None
+    pre = [round(KR_XG2_MET[i - 1][j - 1], 6) for j in range(2, K + 1) for i in range(1, j)]
+    out = {"pre_crawford": pre}
+    if crawford:
+        out["post_crawford"] = [round(1.0 - POST_CRAWFORD[j - 1], 6) for j in range(2, K + 1)]
+    return out
+
+
+def _probs(vals) -> bool:
+    return isinstance(vals, list) and all(
+        isinstance(v, (int, float)) and not isinstance(v, bool) and 0.5 <= v <= 1 for v in vals)
+
+
+class MetTable:
+    """A block's stored table, as the resolvers :func:`mwc_anchors` takes.
+    Without ``post_crawford`` a 1-away score reads the 1-away row, as a match
+    without the Crawford rule plays every game at it."""
+
+    def __init__(self, K: int, pre: list, post: list | None):
+        self.K = K
+        self._pre = pre
+        self._post_vals = post
+
+    def _p(self, x: int, y: int) -> float:
+        if x == y:
+            return 0.5
+        if x < y:
+            return self._pre[(y - 1) * (y - 2) // 2 + x - 1]
+        return 1.0 - self._pre[(x - 1) * (x - 2) // 2 + y - 1]
+
+    def _leader_after(self, y: int) -> float:
+        return self._post_vals[y - 2] if self._post_vals is not None else self._p(1, y)
+
+    def pre(self, x: int, y: int) -> float:
+        if x <= 0:
+            return 1.0
+        if y <= 0:
+            return 0.0
+        return self._p(x, y)
+
+    def post(self, x: int, y: int) -> float:
+        if x <= 0:
+            return 1.0
+        if y <= 0:
+            return 0.0
+        if x == 1 and y == 1:
+            return 0.5
+        if x == 1:
+            return self._leader_after(y)
+        if y == 1:
+            return 1.0 - self._leader_after(x)
+        return self._p(x, y)
+
+
+def met_table(stored) -> MetTable | None:
+    """A block's stored table, or ``None`` when it is not one: a count that is
+    no K's, or a value outside [1/2, 1]."""
+    if not isinstance(stored, dict):
+        return None
+    pre = stored.get("pre_crawford")
+    if not _probs(pre) or not pre:
+        return None
+    root = (1 + 8 * len(pre)) ** 0.5
+    K = (1 + round(root)) // 2
+    if K * (K - 1) // 2 != len(pre):
+        return None
+    post = stored.get("post_crawford")
+    if post is not None and (not _probs(post) or len(post) != K - 1):
+        return None
+    return MetTable(K, pre, post)
 
 
 def eq2mwc(equity: float, away1: int, away2: int, cube_value: int, is_crawford: bool = False) -> float:

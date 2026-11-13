@@ -61,6 +61,7 @@ import zlib
 from datetime import datetime, timezone
 from urllib.parse import quote
 
+from .met import met_table, stored_met
 from .basefill import frame_key, frame_perspective_is_white, mwc_frame_inverse
 from .binary import DICE_TABLE, _round_c
 from .export import (
@@ -1144,7 +1145,7 @@ class _Ctx:
 
     @property
     def mwc(self) -> bool:
-        return self.currency == R.CURRENCY_CUBEFUL_MATCH
+        return self.currency in R.MWC_CURRENCIES
 
     def currency_override(self, sub: dict):
         """A cube decision's own currency, where it states one that is not the
@@ -1154,7 +1155,7 @@ class _Ctx:
         if c is None:
             return None
         _uint_field(c, "currency")
-        if c == self.currency or (c == R.CURRENCY_CUBEFUL_MATCH and self.match.match_length <= 0):
+        if c == self.currency or (c in R.MWC_CURRENCIES and self.match.match_length <= 0):
             return None
         return c
 
@@ -1225,7 +1226,7 @@ def _block_records(match: _Match, select, ctx: _Ctx):
     plies = match.ply_at
 
     def conv_for(p, currency):
-        return _Converter(p, currency == R.CURRENCY_CUBEFUL_MATCH, None)
+        return _Converter(p, currency in R.MWC_CURRENCIES, None)
 
     for idx, (key, p) in enumerate(plies):
         a = select(p)
@@ -1325,7 +1326,44 @@ def _uuid_ok(v) -> bool:
         return False
 
 
-def _block_fields(info: dict, match: "_Match"):
+def _met_away(match: "_Match") -> int:
+    """K (6.6): the most points either side needed at the start."""
+    ss = match.doc.get("score_start") or [0, 0]
+    return match.match_length - min(int(ss[0] or 0), int(ss[1] or 0))
+
+
+def _met_field(info: dict, match: "_Match", currency: int, objs: list) -> bytes | None:
+    """ANAL's ``met`` (6.6, 2.3): the table a match block's MWCs are quoted on, so
+    another reader converts them on it rather than on its own. The block's own
+    where it carries one (another producer's, its plies converted through it);
+    else ours, where every ply was converted on our table -- not where a source's
+    own frame (``mwc_frame``) stood in for it, or the block names another table."""
+    if match.match_length <= 0 or currency not in R.MWC_CURRENCIES:
+        return None
+    K = _met_away(match)
+    crawford = bool(match.doc.get("crawford"))
+    met = None
+    own = info.get("met")
+    if own is not None:
+        t = met_table(own)
+        if t is not None and t.K == K and bool(own.get("post_crawford")) == crawford:
+            met = own
+    elif (not info.get("met_id") or info.get("met_id") == "kazaross-xg2") and not any(
+            isinstance(a, dict) and a.get("mwc_frame") is not None for a in objs):
+        met = stored_met(K, crawford)
+    if met is None:
+        return None
+
+    def table(vals) -> bytes:
+        return _varint(len(vals)) + b"".join(_varint(math.floor(v * 1e6 + 0.5)) for v in vals)
+
+    fields = {}
+    if met.get("post_crawford"):
+        fields[0] = table(met["post_crawford"])
+    return _record(table(met["pre_crawford"]), fields)
+
+
+def _block_fields(info: dict, match: "_Match", objs: list):
     """``(fields, items, nsources, currency)`` for a block's ``ANAL`` record: the
     optional fields by bit (not the level or coverage), the
     ``x-gammonview-analysis`` items for values v2 cannot hold (P6), how many
@@ -1375,7 +1413,7 @@ def _block_fields(info: dict, match: "_Match"):
     if stated is not None:
         _uint_field(stated, "currency")
     currency = default if stated is None or (
-        stated == R.CURRENCY_CUBEFUL_MATCH and match.match_length <= 0) else stated
+        stated in R.MWC_CURRENCIES and match.match_length <= 0) else stated
     fields[9] = _varint(currency)
 
     if info.get("cube_efficiency") is not None:
@@ -1421,6 +1459,10 @@ def _block_fields(info: dict, match: "_Match"):
             item("completed_at", R._gv_text("i", completed))
     if info.get("duration_ms"):
         fields[16] = _varint(int(info["duration_ms"]))
+
+    met = _met_field(info, match, currency, objs)
+    if met is not None:
+        fields[18] = met
 
     sources = info.get("sources")
     nsources = 0
@@ -1720,6 +1762,27 @@ def check_annos(annos: list[_Anno]) -> None:
             seen.add(ident)
 
 
+def _clock_rule(clock: dict) -> tuple[int, int, int]:
+    """``(rule, white_grants, black_grants)``, CLCK's header bytes 17-19 (2.3): a
+    rule by its name or as the id a source stated, the grants as two counts."""
+    rule = clock.get("rule")
+    if rule is None:
+        rule = 0
+    elif isinstance(rule, str):
+        ids = [k for k, v in P.CLOCK_RULES.items() if v == rule]
+        if not ids:
+            raise ValueError(f"clock_info rule {json.dumps(rule)} is not one v2 names")
+        rule = ids[0]
+    if not _is_uint(rule, 8):
+        raise ValueError(f"clock_info rule {rule!r} is not a rule id")
+    grants = clock.get("grants")
+    if grants is None:
+        grants = [0, 0]
+    if not isinstance(grants, list) or len(grants) != 2 or not all(_is_uint(g, 8) for g in grants):
+        raise ValueError(f"clock_info grants {json.dumps(grants)} are not two counts")
+    return rule, grants[0], grants[1]
+
+
 def _clock_section(doc: dict, match: _Match) -> bytes | None:
     """``CLCK`` (8.2) from ``clock_info`` and each ply's ``timestamp_ms``, or None where
     the document has no clock or the series cannot be written: a reading after a
@@ -1729,7 +1792,7 @@ def _clock_section(doc: dict, match: _Match) -> bytes | None:
         return None
     flags = _opt_uint(clock, "flags", "clock_info", 8)
     header = tuple(_opt_uint(clock, k, "clock_info") for k in
-                   ("reserve_ms", "delay_ms", "increment_ms", "start_timestamp")) + (flags,)
+                   ("reserve_ms", "delay_ms", "increment_ms", "start_timestamp")) + (flags,) + _clock_rule(clock)
     precision = clock.get("precision")
     if precision is None:
         precision = P.CLOCK_PRECISION
@@ -1863,7 +1926,7 @@ def _encode(ogxm: dict) -> _Parts:
         stated = info.get("level")
         block_eff = _check_level(stated) if stated is not None else R.block_level_of(info, objs)
         luck_label = info.get("luck_eval_level") or "1ply"
-        fields, items, nsources, written_currency = _block_fields(info, match)
+        fields, items, nsources, written_currency = _block_fields(info, match, objs)
         ctx = _Ctx(match, block_eff, written_currency, nsources, luck_label)
         decs, extra, frames, places = _block_records(match, select, ctx)
 
@@ -2020,7 +2083,12 @@ def _assemble(parts: _Parts, plan: P.Plan) -> bytes:
     else:
         body_sections = [s for _k, s in secs]
 
-    minor = max(2 if match.pending_double_end else (1 if parts.uses_21 else 0), plan.minor_floor)
+    # 2.3's additions this writer can make -- a stored table, a clock rule or a
+    # grant -- each raise the minor and none the reader's (spec 2.1).
+    uses_23 = any("met" in R._decode_anal(anal) for anal, *_rest in plan.blocks) or (
+        plan.clck is not None and any(plan.clck[17:20]))
+    minor = max(3 if uses_23 else (2 if match.pending_double_end else (1 if parts.uses_21 else 0)),
+                plan.minor_floor)
     min_minor = max(2 if match.pending_double_end else 0, plan.min_minor_floor)
     body = bytearray(b"OGXM" + struct.pack("<HHHHI", 2, minor, 2, min_minor, 0))
     for s in body_sections:

@@ -101,19 +101,96 @@ function _mePost(x, y) {
 // pre-Crawford table (reaching 1-away lands on the Crawford value); Crawford
 // (cube dead => cube 1) and post-Crawford plies use the post-Crawford vector.
 // Money game (non-positive away count) degenerates to (1.0, 0.0).
-export function mwcAnchors(away1, away2, cubeValue, isCrawford = false) {
+//
+// `table` is another producer's table, as `metTable` reads it from a block that
+// stores one; null is ours. Returns null where `table` does not reach the score.
+export function mwcAnchors(away1, away2, cubeValue, isCrawford = false, table = null) {
   if (away1 <= 0 || away2 <= 0) return [1.0, 0.0];
   let cube, me;
   if (isCrawford || away1 === 1 || away2 === 1) {
     cube = isCrawford ? 1 : cubeValue;  // Crawford game: dead cube
-    me = _mePost;
+    me = table === null ? _mePost : table.post;
   } else {
     cube = cubeValue;
-    me = _mePre;
+    me = table === null ? _mePre : table.pre;
   }
+  if (table !== null && (Math.max(away1, away2) > table.K)) return null;
   const mwcWin = me(away1 - cube, away2);          // mover scored `cube`
   const mwcLose = 1.0 - me(away2 - cube, away1);   // opponent scored `cube`
   return [mwcWin, mwcLose];
+}
+
+// ---------------------------------------------------------------------------
+// The table a block stores (OGXM 2.3, spec 6.6)
+// ---------------------------------------------------------------------------
+//
+// A match block may carry the table its numbers were computed on (`ANAL.met`),
+// cut at K, the most points either side needed at the start. Only the leader's
+// side is stored: `pre_crawford` holds P(i, j) for 1 <= i < j <= K at index
+// (j-1)(j-2)/2 + i - 1, its 1-away row being the Crawford game's (or any game's
+// without the rule), and `post_crawford` P(1, j) after the Crawford game for
+// j = 2..K. Values are match winning chances, read and written at six places.
+
+// The largest K our own table can be cut at.
+export const MET_MAX_AWAY = _N;
+
+function _round6(x) {
+  return Math.round(x * 1e6) / 1e6;
+}
+
+/** Ours cut at K, as a block stores it: `{pre_crawford, post_crawford}` (the
+ *  second only for a match played with the Crawford rule), or null where there
+ *  is nothing a block may store (K < 2) or our table stops short of K. */
+export function storedMet(K, crawford = true) {
+  if (!Number.isInteger(K) || K < 2 || K > _N) return null;
+  const pre = [];
+  for (let j = 2; j <= K; j++) {
+    for (let i = 1; i < j; i++) pre.push(_round6(KR_XG2_MET[i - 1][j - 1]));
+  }
+  const out = { pre_crawford: pre };
+  if (crawford) {
+    const post = [];
+    for (let j = 2; j <= K; j++) post.push(_round6(1.0 - POST_CRAWFORD[j - 1]));
+    out.post_crawford = post;
+  }
+  return out;
+}
+
+function _probs(list) {
+  return Array.isArray(list) && list.every((v) => typeof v === 'number' && v >= 0.5 && v <= 1);
+}
+
+/** A block's stored table as the resolvers `mwcAnchors` takes, or null when it
+ *  is not one: a count that is no K's, or a value outside [1/2, 1]. Without
+ *  `post_crawford` a 1-away score reads the 1-away row, as a match without the
+ *  Crawford rule plays every game at it. */
+export function metTable(stored) {
+  if (stored === null || typeof stored !== 'object') return null;
+  const pre = stored.pre_crawford;
+  if (!_probs(pre) || !pre.length) return null;
+  const K = (1 + Math.sqrt(1 + 8 * pre.length)) / 2;
+  if (!Number.isInteger(K)) return null;
+  const post = stored.post_crawford;
+  if (post !== undefined && post !== null && (!_probs(post) || post.length !== K - 1)) return null;
+  const hasPost = post !== undefined && post !== null;
+
+  const p = (x, y) => {                        // the table's P(x, y), any order
+    if (x === y) return 0.5;
+    return x < y ? pre[(y - 1) * (y - 2) / 2 + x - 1] : 1.0 - pre[(x - 1) * (x - 2) / 2 + y - 1];
+  };
+  const leaderAfter = (y) => (hasPost ? post[y - 2] : p(1, y));   // P(1, y), y >= 2
+  return {
+    K,
+    pre: (x, y) => (x <= 0 ? 1.0 : y <= 0 ? 0.0 : p(x, y)),
+    post: (x, y) => {
+      if (x <= 0) return 1.0;
+      if (y <= 0) return 0.0;
+      if (x === 1 && y === 1) return 0.5;
+      if (x === 1) return leaderAfter(y);
+      if (y === 1) return 1.0 - leaderAfter(x);
+      return p(x, y);
+    },
+  };
 }
 
 // Convert a cubeful equity to match-winning chance via the shipped MET.

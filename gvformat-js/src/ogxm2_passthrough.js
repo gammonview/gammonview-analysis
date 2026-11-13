@@ -241,7 +241,7 @@ export function decodeClock(payload, plyCount) {
   if (payload.length < 29) return null;
   const dv = new DataView(payload.buffer, payload.byteOffset, payload.byteLength);
   const header = [dv.getUint32(0, true), dv.getUint32(4, true), dv.getUint32(8, true),
-    dv.getUint32(12, true), payload[16]];
+    dv.getUint32(12, true), payload[16], payload[17], payload[18], payload[19]];
   const length = dv.getUint32(20, true);
   const smallBits = payload[24];
   const precision = dv.getUint32(25, true);
@@ -307,7 +307,7 @@ export function encodeClock(header, ts, plyCount, precision = CLOCK_PRECISION) {
   const out = [];
   const u32 = (n) => out.push(...Array.from(_u32(n)));
   header.slice(0, 4).forEach(u32);
-  out.push(header[4], 0, 0, 0);
+  out.push(header[4], header[5] || 0, header[6] || 0, header[7] || 0);
   u32(length);
   out.push(best);
   u32(precision);
@@ -422,13 +422,19 @@ export function encodeVideo(header, marksIn) {
   return out;
 }
 
+// [9.29] The clock rules 2.3 names, by id. One it does not know is kept as its id.
+export const CLOCK_RULES = { 1: 'opengammon' };
+
 /** The document's `clock_info` for a decoded header: its four numbers, the berserk
- *  flags when set, the unassigned flag bits when any, and `precision` only when
- *  it is not the canonical 10. */
+ *  flags when set, the unassigned flag bits when any, the rule the series is
+ *  charged by and each side's extra-time grants (2.3) when stated, and
+ *  `precision` only when it is not the canonical 10. */
 export function clockDoc(header, precision) {
-  const [reserve, delay, incr, start, flags] = header;
+  const [reserve, delay, incr, start, flags, rule, white, black] = header;
   const out = { reserve_ms: reserve, delay_ms: delay, increment_ms: incr, start_timestamp: start };
   if (flags) out.flags = flags;
+  if (rule) out.rule = CLOCK_RULES[rule] || rule;
+  if (white || black) out.grants = [white, black];
   if (precision !== CLOCK_PRECISION) out.precision = precision;
   return out;
 }

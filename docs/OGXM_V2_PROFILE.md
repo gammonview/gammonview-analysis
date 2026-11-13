@@ -8,6 +8,13 @@ and finds every decision v2 has a field for. This document says how our
 document maps onto v2, what travels outside v2's fields, and where reading a
 file back gives something other than what was written.
 
+Both read and write **2.3**. Of 2.3's additions we write two -- a match block's
+table (`ANAL.met`) and the clock's rule and grants -- and each raises
+`version_minor` to 3 but not `min_reader_minor`, so a 2.2 reader still loads
+everything we write. A file that also holds a decision only 2.3 places (a
+forfeit's `RESIGN`, a decision on an illegal play) has `min_reader_minor` 3, and
+before 2.3 our reader refused it; OpenGammon writes priced forfeits.
+
 `read_gvab` reads v1 and v2 alike. v1 stays readable for good — files and share
 links written before 2.0.0 are v1 — and `write_gvab_v1` keeps the old writer for
 tests and comparison. The GVAN chunk and the rest of
@@ -97,6 +104,7 @@ One `ANAL` + `DECS` per analysis block, primary first.
 | `analysis_info.ply` | the block level's `checker_ply` |
 | `analysis_info.eval_level` | see Levels |
 | `analysis_info.met_id` | `met_id`. A match block without one is written as `kazaross-xg2`, the table we convert with |
+| `analysis_info.met` | `met` (6.6, 2.3): `{pre_crawford, post_crawford?}`, the leader's match winning chances at six places. Present only on another producer's block; ours is cut from our table on write (see Units) |
 | (no `currency` key) | `cubeful match` (MWC) in a match, `cubeful money` in a money session |
 | `level` (block, decision, alternative) | the full level record (6.4) — preset, depths, the rollout's trials, truncation, seed (a decimal string), ... — kept only where the labels below do not already give it |
 
@@ -121,6 +129,22 @@ BGBlitz's own MWCs, to within the document's 4-place equities (2.5e-5 at
 worst over the samples), and our reader gives back BGBlitz's normalized
 equities exactly. XG needs nothing of this: it stores normalized equities only,
 and its default table is ours.
+
+**A stored table (2.3).** A block may state the table its MWCs were computed
+on, cut at the match length (`met`, spec 6.6). Without one, the spec has a
+reader assume OGX's own, Rockwell-Kazaross, which is not ours -- so every match
+block we write now states ours, Kazaross-XG2 cut at K (the most points either
+side needed at the start; a 2- to 25-point match), unless a source's frame stood
+in for our table on any of its plies or the block names another table (BGBlitz's
+does both). The document does not carry it: our own block reads back without
+`met`, and the writer cuts it again. Another producer's block that stores a
+table -- OpenGammon's, on Rockwell-Kazaross -- converts on that table instead of
+ours: each ply's frame is read off it and put on the ply as `mwc_frame`, exactly
+as a `.bgf`'s are, so a rewrite converts back through the same frames, states
+them in `frame=`, and writes the table back with them. A foreign block without
+a table still converts on ours; the spec's Rockwell-Kazaross default is not
+applied, because our own files written before 2.3 carry no table either and
+were converted on ours.
 
 **Levels.** v2 states a level at three tiers — block, decision, alternative —
 each overriding only what differs (L1). Our labels (`2ply`, `truncated2`,
@@ -178,7 +202,7 @@ there. **Resignations** are `RESIGN` records. **Luck** is a `ROLL` record on
 every dice ply that has it. A beaver is analyzed as the take it answers, at the
 cube before the double; the raccoon after it carries no decision.
 
-**Clock, video and annotations.** `CLCK` is `clock_info` (its settings: the four numbers, `flags` as the header byte stores it when not 0, and `precision` when not 10) with
+**Clock, video and annotations.** `CLCK` is `clock_info` (its settings: the four numbers, `flags` as the header byte stores it when not 0, `rule` (`opengammon`, or the id of a rule we do not know) and `grants` (`[white, black]`) when stated (2.3, 8.2), and `precision` when not 10) with
 `timestamp_ms` on each ply; `VIDO` is `video_info` with `video_ms`, `wall_ms`,
 `behind_live_ms` and `video_hand_anchored` on each marked ply (the spec's
 Appendix A.3 names); `ANNO` records other than ours are `annotations` lists —
@@ -244,6 +268,8 @@ decisions where the document says otherwise, each as its `ply_ref` and a letter:
 | no-first-move | a game with no play has no first mover to derive |
 | luck-level | a block with no luck has no luck level |
 | met-id | a match block names its table: `kazaross-xg2` when the document named none |
+| met-ours | a match block on our table stores it (`met`, 2.3) and reads back without it in the document; a foreign block's table reads back as it was |
+| forfeit-resign | another producer's `RESIGN` on a forfeit is read past rather than kept; a rewrite that re-encodes its block drops it |
 | mwc-frame | a source's frame (`mwc_frame`, §2) is carried by v2 only; v1 loses it |
 | default-omitted | a value equal to v2's default is not written, so it reads back absent: `variant` 0, a 0-0 `score_start`, `initial_cube_value` 1, `initial_cube_owner` 2 (centred), `auto_doubles` 0 or false, `rules_other` 0, a false flag, an empty string |
 | site-is-stated | `site` reads back exactly as written, and a document with none reads back with none, whatever its `city` or `platform` |

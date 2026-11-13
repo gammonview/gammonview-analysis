@@ -4,7 +4,7 @@
 // Reading OGXM v2 -- HedgeHog's current match format -- into the document
 // `readGvab` returns for a v1 file.
 //
-// v2 (HedgeHog's `docs/OGXM_FORMAT_SPEC.md`, 2.2 at the time of writing) keeps
+// v2 (HedgeHog's `docs/OGXM_FORMAT_SPEC.md`, 2.3 at the time of writing) keeps
 // v1's magic and its ideas and changes nearly every byte: a 16-byte header,
 // sections with a 9-byte header, varint-framed records with a presence mask,
 // plies addressed by one match-wide ordinal (`ply_ref`), and a single `DECS`
@@ -65,9 +65,10 @@ import {
 } from './reader.js';
 import { _crc32, _b64decode, _b64encode } from './binary.js';
 import {
-  completeBaseBlock, framePerspectiveIsWhite, mwcFrame, trivialCube, _checkerIsDecision,
+  completeBaseBlock, framePerspectiveIsWhite, metFrame, mwcFrame, trivialCube, _checkerIsDecision,
   _cubePlyIsDecision,
 } from './basefill.js';
+import { metTable } from './met.js';
 import { DICE_TABLE } from './constants.js';
 import {
   attach, decodeClock, clockDoc, decodeVideo, videoDoc, videoMarkDoc,
@@ -81,7 +82,7 @@ const HEADER_SIZE = 16;                          // [2.1]
 const SECTION_HEADER_SIZE = 9;                   // [2.2]
 const END_MARKER = 'END!';                       // [2.3]
 const READER_MAJOR = 2;
-const READER_MINOR = 2;
+const READER_MINOR = 3;
 const MAX_FILE_SIZE = 64 * 1024 * 1024;          // [10]
 
 const KNOWN_SECTIONS = new Set([
@@ -113,6 +114,9 @@ const KIND_ROLL = 3;
 
 const CURRENCY_CUBEFUL_MONEY = 1;
 const CURRENCY_CUBEFUL_MATCH = 2;                // [9.10]
+const CURRENCY_CUBELESS_MATCH = 3;               // [9.10], 2.3
+// The currencies quoted in match winning chance, which a match block converts.
+const MWC_CURRENCIES = [CURRENCY_CUBEFUL_MATCH, CURRENCY_CUBELESS_MATCH];
 
 // The plies a cube record can sit on besides a dice action [7.4], and what each
 // is called in a document's `played_action`.
@@ -653,7 +657,22 @@ function _decodeAnal(payload) {
     a.sources = [];
     for (let i = 0; i < n; i++) a.sources.push(_uuidStr(body.bytes(16)));
   }
+  if (has(18)) a.met = _decodeMet(body);
   return a;
+}
+
+/** [6.6] A `met` record: the table as six-place match winning chances. */
+function _decodeMet(cur) {
+  const { body, has } = cur.record();
+  const list = () => {
+    const n = body.varint();
+    const out = [];
+    for (let i = 0; i < n; i++) out.push(body.varint() / 1e6);
+    return out;
+  };
+  const met = { pre_crawford: list() };
+  if (has(0)) met.post_crawford = list();
+  return met;
 }
 
 /** [7.2] */
@@ -1503,8 +1522,12 @@ function _frameInForce(frames, ref) {
  */
 export function _v1Block(anal, decisions, plyAt, matchLength, ours = null) {
   const blockLevel = _resolve({}, anal.level);
-  const blockMwc = matchLength > 0 && anal.currency === CURRENCY_CUBEFUL_MATCH;
+  const blockMwc = matchLength > 0 && MWC_CURRENCIES.includes(anal.currency);
   const blockObj = new Map();
+  // Another producer's block that stores its table (2.3) converts on that table,
+  // and each ply states the frame it gave, so a rewrite converts back through it.
+  // A block of ours states its frames itself, in `frame=`.
+  const table = ours === null && matchLength > 0 ? metTable(anal.met) : null;
   let luckLevels = new Set();
   const mine = ours !== null;
 
@@ -1524,14 +1547,15 @@ export function _v1Block(anal, decisions, plyAt, matchLength, ours = null) {
     const { key, ply } = at;
     const currency = d.currency !== undefined ? d.currency : anal.currency;
     const mwc = d.kind === KIND_CUBE
-      ? matchLength > 0 && currency === CURRENCY_CUBEFUL_MATCH : blockMwc;
+      ? matchLength > 0 && MWC_CURRENCIES.includes(currency) : blockMwc;
     // A ply with no frame (one past a replay failure) cannot be converted; its
     // decision is dropped rather than shown in the wrong unit. A block that
     // states the source's own frame for the ply converts through that, not
     // through our table.
     const wire = mine && mwc ? _frameInForce(ours.frames, d.ply_ref) : null;
-    const source = wire !== null
+    let source = wire !== null
       ? frameFromWire(wire[0], wire[1], framePerspectiveIsWhite(ply)) : null;
+    if (table !== null && mwc) source = metFrame(ply, table);
     const frame = mwc ? mwcFrame(ply, source) : _identity;
     if (frame === null) continue;
 
@@ -1582,6 +1606,14 @@ export function _v1Block(anal, decisions, plyAt, matchLength, ours = null) {
     }
   }
 
+  if (table !== null && blockMwc) {
+    const refOf = new Map(plyAt.map((at, i) => [at.key, i]));
+    for (const [key, obj] of blockObj) {
+      const frame = metFrame(plyAt[refOf.get(key)].ply, table);
+      if (frame !== null) obj.mwc_frame = frame;
+    }
+  }
+
   const info = { ply: blockLevel.checker_ply || 0 };
   if (mine) {
     // The block's own label travels in its annotation when it is not the level
@@ -1595,6 +1627,10 @@ export function _v1Block(anal, decisions, plyAt, matchLength, ours = null) {
   }
   if (anal.model_id !== undefined) info.model_id = anal.model_id;
   if (anal.met_id) info.met_id = anal.met_id;
+  // The table is kept where it is another producer's: a block of ours stores
+  // our own, which the writer cuts again, unless its frames say it came from
+  // one that was not (a foreign block we rewrote).
+  if (anal.met !== undefined && (!mine || ours.frames.length)) info.met = anal.met;
   info.timestamp = anal.started_at !== undefined ? Number(anal.started_at / 1000n) : 0;
   if (anal.duration_ms) info.duration_ms = anal.duration_ms;
   if (luckLevels.size === 1) {
@@ -1960,7 +1996,7 @@ export function _readOgxm2(data, options) {
 export {
   CHECKER_KEYS, _resolve, CUBE_ACTIONS, GV_BLOCK_FIELDS, GV_DIAL_FIELDS, BLOCK_KEYS, DIAL_FIELDS, DIAL_FLAGS, _stable,
   KIND_CHECKER, KIND_CUBE, KIND_RESIGN, KIND_ROLL,
-  CURRENCY_CUBEFUL_MONEY, CURRENCY_CUBEFUL_MATCH,
+  CURRENCY_CUBEFUL_MONEY, CURRENCY_CUBEFUL_MATCH, MWC_CURRENCIES,
   GV_FORMAT, GV_KEY_ANALYSIS, GV_KEY_DECISIONS, GV_KEY_ILLEGAL_PLY,
   GV_ITEM_PLIES, GV_PLIES_GNUBG, PLY_SHIFT, shiftLevel, shiftLevels,
   GV_KEY_SITE, GV_KEY_EVENT, GV_KEY_SCORE, GV_KEY_ANNOTATIONS, GV_KEY_VIDEO_URL, V2_FIELD_NAMES,

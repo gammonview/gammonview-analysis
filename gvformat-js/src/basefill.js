@@ -167,6 +167,21 @@ export function framePerspectiveIsWhite(ply) {
   return answering ? ply.color !== 1 : ply.color === 1;
 }
 
+/**
+ * The source frame `[mid, half]` a block's stored table (`metTable`) gives this
+ * ply, at the eight places a `frame=` item carries -- the form `mwcFrame` and
+ * `mwc_frame` take -- or null where there is no match-play frame or the table
+ * does not reach the score.
+ */
+export function metFrame(ply, table) {
+  const key = frameKey(ply);
+  if (key === null) return null;
+  const anchors = mwcAnchors(key[0], key[1], key[2], key[3], table);
+  if (anchors === null || anchors[0] === anchors[1]) return null;
+  const [mwcWin, mwcLose] = anchors;
+  return [Number(((mwcWin + mwcLose) / 2).toFixed(8)), Number(((mwcWin - mwcLose) / 2).toFixed(8))];
+}
+
 /** `[mid, span]` of the MWC interval this ply's equities normalize over. A
  *  source's `frame` (`[mid, half]`) replaces the table's anchors. */
 function _frameAnchors(ply, frame = null) {

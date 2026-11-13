@@ -1,8 +1,8 @@
 {
   "match-currencies": {
-    "length": 4301,
+    "length": 4348,
     "settled_sha256": "b9c333b52837647f1187d2d386289b4c82e8080923ded1ab0d0a203b39c24acc",
-    "sha256": "0d6bcc688f3a81968e75ccc59c0190a7035559d080a34131fbeb035b97b084a3"
+    "sha256": "5cc934b87b37eedbf8e605e3b13b5b8df9b12585e018cf0657809de4d0bfa0c9"
   },
   "money-block-in-a-match": {
     "length": 4295,
@@ -20,9 +20,9 @@
     "sha256": "9617535429003234b21f19dc6fe17aa031bcdd529561a4881b0eb0df2794fdcd"
   },
   "resigned": {
-    "length": 607,
+    "length": 693,
     "settled_sha256": "49eef5b1fd6c6a60d6ed93b0087dc72b9ceec59a36b7436b09b2ca95621a40a4",
-    "sha256": "fcfc15c84dc1f0dd6e42ede8d9c9ad2e9a1c8e6e6ed26cbe75feb49558a65dbf"
+    "sha256": "c0d8fef620ee6cdf3fdc8ff68eabb6aded53e5fd5b62f7592dd62063c873519b"
   },
   "rich-money": {
     "length": 6278,

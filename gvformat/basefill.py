@@ -190,6 +190,21 @@ def frame_perspective_is_white(ply: dict) -> bool:
     return ply.get("color") != 1 if answering else ply.get("color") == 1
 
 
+def met_frame(ply: dict, table) -> list[float] | None:
+    """The source frame ``[mid, half]`` a block's stored table (``met_table``)
+    gives this ply, at the eight places a ``frame=`` item carries -- the form
+    ``mwc_frame``'s ``frame`` and a ply's ``mwc_frame`` take -- or None where
+    there is no match-play frame or the table does not reach the score."""
+    key = frame_key(ply)
+    if key is None:
+        return None
+    anchors = mwc_anchors(key[0], key[1], key[2], key[3], table)
+    if anchors is None or anchors[0] == anchors[1]:
+        return None
+    mwc_win, mwc_lose = anchors
+    return [round((mwc_win + mwc_lose) / 2, 8), round((mwc_win - mwc_lose) / 2, 8)]
+
+
 def _frame_anchors(ply: dict, frame=None) -> tuple[float, float] | None:
     """``(mid, span)`` of the MWC interval this ply's equities normalize over.
     A source's ``frame`` (``[mid, half]``) replaces the table's anchors."""

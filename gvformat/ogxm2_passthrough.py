@@ -216,9 +216,9 @@ def decode_clock(payload: bytes, ply_count: int):
     else None. ``precision`` is the canonical 10 when the series is empty."""
     if len(payload) < 29:
         return None
-    reserve, delay, incr, start, flags = struct.unpack_from("<IIIIB", payload, 0)
+    reserve, delay, incr, start, flags, rule, white, black = struct.unpack_from("<IIIIBBBB", payload, 0)
     length, small_bits, precision = struct.unpack_from("<IBI", payload, 20)
-    header = (reserve, delay, incr, start, flags)
+    header = (reserve, delay, incr, start, flags, rule, white, black)
     if length == 0:
         return (header, [0], CLOCK_PRECISION) if len(payload) == 29 else None
     if not 1 <= small_bits <= 31 or precision == 0 or length + 1 > ply_count:
@@ -292,7 +292,8 @@ def encode_clock(header, ts: list[int], ply_count: int,
             s = size(b)
             if s < best_size:
                 best_size, best = s, b
-    out = bytearray(struct.pack("<IIIIB3xIBI", *header, length, best, precision))
+    head = tuple(header) + (0, 0, 0, 0)          # a header with no rule or grants has none
+    out = bytearray(struct.pack("<IIIIBBBBIBI", *head[:8], length, best, precision))
     per_word = 64 // best
     for i in range(0, length, per_word):
         word = 0
@@ -349,15 +350,24 @@ def decode_video(payload: bytes, plies_per_game: list[int]):
     return (kind, flags & 1, offset, url), marks
 
 
+#: [9.29] The clock rules 2.3 names, by id. One it does not know is kept as its id.
+CLOCK_RULES = {1: "opengammon"}
+
+
 def clock_doc(header, precision: int) -> dict:
     """The document's ``clock_info`` for a decoded header: its four numbers, the
-    ``flags`` byte as stored when it is not 0, and ``precision`` only when it is
-    not the canonical 10."""
-    reserve, delay, incr, start, flags = header
+    ``flags`` byte as stored when it is not 0, the rule the series is charged by
+    and each side's extra-time grants (2.3) when stated, and ``precision`` only
+    when it is not the canonical 10."""
+    reserve, delay, incr, start, flags, rule, white, black = header
     out: dict = {"reserve_ms": reserve, "delay_ms": delay, "increment_ms": incr,
                  "start_timestamp": start}
     if flags:
         out["flags"] = flags
+    if rule:
+        out["rule"] = CLOCK_RULES.get(rule, rule)
+    if white or black:
+        out["grants"] = [white, black]
     if precision != CLOCK_PRECISION:
         out["precision"] = precision
     return out

@@ -143,8 +143,8 @@ def main() -> int:
     check(raises_gvab(lambda: read_gvab(bytes(corrupt)), "CSUM mismatch"),
           "a corrupted byte fails the checksum")
     later = bytearray(raw)
-    later[10] = 3
-    check(raises_gvab(lambda: read_gvab(bytes(later)), "2.3 reader"),
+    later[10] = 4
+    check(raises_gvab(lambda: read_gvab(bytes(later)), "2.4 reader"),
           "a newer minimum reader is refused")
     check(raises_gvab(lambda: read_gvab(raw[:-10]), "file_size"), "a truncated file is refused")
 

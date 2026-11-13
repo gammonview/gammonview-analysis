@@ -54,7 +54,7 @@ import { isPlayLegal } from './legality.js';
 import { _absoluteToP1, _applyMovesP1, _deriveOgids } from './reader.js';
 import {
   KIND_CHECKER, KIND_CUBE, KIND_RESIGN, KIND_ROLL,
-  CURRENCY_CUBEFUL_MONEY, CURRENCY_CUBEFUL_MATCH,
+  CURRENCY_CUBEFUL_MONEY, CURRENCY_CUBEFUL_MATCH, MWC_CURRENCIES,
   GV_FORMAT, GV_KEY_ANALYSIS, GV_KEY_DECISIONS, GV_KEY_ILLEGAL_PLY,
   GV_ITEM_PLIES, GV_PLIES_GNUBG, PLY_SHIFT, shiftLevel, shiftLevels,
   GV_KEY_SITE, GV_KEY_EVENT, GV_KEY_SCORE, GV_KEY_ANNOTATIONS, GV_KEY_VIDEO_URL, V2_FIELD_NAMES,
@@ -67,8 +67,9 @@ import {
 } from './ogxm2.js';
 import {
   Plan, annoSortKey, cmpSortKeys, b64d, encodeClock, encodeVideo, urlStorable, CLOCK_PRECISION,
-  MAX_VIDEO_URL,
+  CLOCK_RULES, MAX_VIDEO_URL,
 } from './ogxm2_passthrough.js';
+import { metTable, storedMet } from './met.js';
 
 const MAX_STRING = 4096;
 const MAX_ALTS = 1024;            // MAX_ALTS_PER_DECISION
@@ -1299,7 +1300,7 @@ class _Ctx {
   }
 
   get mwc() {
-    return this.currency === CURRENCY_CUBEFUL_MATCH;
+    return MWC_CURRENCIES.includes(this.currency);
   }
 
   /** A cube decision's own currency, where it states one that is not the block's
@@ -1309,7 +1310,7 @@ class _Ctx {
     const c = sub.currency;
     if (!_present(c)) return null;
     _uintField(c, 'currency');
-    if (c === this.currency || (c === CURRENCY_CUBEFUL_MATCH && this.match.match_length <= 0)) {
+    if (c === this.currency || (MWC_CURRENCIES.includes(c) && this.match.match_length <= 0)) {
       return null;
     }
     return c;
@@ -1388,7 +1389,7 @@ function _blockRecords(match, select, ctx) {
     const conv = new _Converter(p, mwc, source);
     const illegal = match.illegal.has(ref);
     const recs = [];                    // [kind, bytes, main-capable]
-    const convFor = (currency) => new _Converter(p, currency === CURRENCY_CUBEFUL_MATCH, null);
+    const convFor = (currency) => new _Converter(p, MWC_CURRENCIES.includes(currency), null);
     const cube = (sub, verdict, loss, plyLabel = false) => {
       const labels = { preset: _nn(sub.eval_level) };
       if (plyLabel) labels.cube_ply = sub.ply || null;
@@ -1485,7 +1486,40 @@ function _hexBytes(h) {
  * the document's numbers as they are. Otherwise it is written in the default for
  * the match, and reads back so (profile section 4).
  */
-function _blockFields(info, match) {
+/** K (6.6): the most points either side needed at the start. */
+function _metAway(match) {
+  const ss = match.doc.score_start || [0, 0];
+  return match.match_length - Math.min(_int(ss[0] || 0), _int(ss[1] || 0));
+}
+
+/**
+ * ANAL's `met` (6.6, 2.3): the table a match block's MWCs are quoted on, so
+ * another reader converts them on it rather than on its own. The block's own
+ * where it carries one (another producer's, its plies converted through it);
+ * else ours, where every ply was converted on our table -- not where a source's
+ * own frame (`mwc_frame`) stood in for it, or the block names another table.
+ */
+function _metField(info, match, currency, objs) {
+  if (match.match_length <= 0 || !MWC_CURRENCIES.includes(currency)) return null;
+  const K = _metAway(match);
+  const crawford = Boolean(match.doc.crawford);
+  let met = null;
+  const own = info.met;
+  if (own !== undefined && own !== null) {
+    const t = metTable(own);
+    if (t !== null && t.K === K && Boolean(own.post_crawford) === crawford) met = own;
+  } else if ((!info.met_id || info.met_id === 'kazaross-xg2')
+             && !objs.some((a) => a !== null && typeof a === 'object' && a.mwc_frame !== undefined)) {
+    met = storedMet(K, crawford);
+  }
+  if (met === null) return null;
+  const list = (vals) => _cat(_varint(vals.length), ...vals.map((v) => _varint(Math.round(v * 1e6))));
+  const fields = {};
+  if (met.post_crawford) fields[0] = list(met.post_crawford);
+  return _record(list(met.pre_crawford), fields);
+}
+
+function _blockFields(info, match, objs) {
   const fields = {};
   const items = [];
   const item = (name, text) => items.push(`${name}=${_quote(text, _SAFE)}`);
@@ -1520,7 +1554,7 @@ function _blockFields(info, match) {
   const stated = _nn(info.currency);
   if (stated !== null) _uintField(stated, 'currency');
   const currency = stated === null
-    || (stated === CURRENCY_CUBEFUL_MATCH && match.match_length <= 0) ? dflt : stated;
+    || (MWC_CURRENCIES.includes(stated) && match.match_length <= 0) ? dflt : stated;
   fields[9] = _varint(currency);
 
   if (_present(info.cube_efficiency)) {
@@ -1562,6 +1596,9 @@ function _blockFields(info, match) {
     else item('completed_at', _gvText('i', completed));
   }
   if (info.duration_ms) fields[16] = _varint(_int(info.duration_ms));
+
+  const met = _metField(info, match, currency, objs);
+  if (met !== null) fields[18] = met;
 
   const sources = info.sources;
   let nsources = 0;
@@ -1888,12 +1925,30 @@ function checkAnnos(annos) {
 /** CLCK (8.2) from `clock_info` and each ply's `timestamp_ms`, or null where the document
  *  has no clock or the series cannot be written: a reading after a ply without
  *  one, a first reading that is not 0, one that runs backwards. */
+/** `[rule, white_grants, black_grants]`, CLCK's header bytes 17-19 (2.3): a rule
+ *  by its name or as the id a source stated, the grants as two counts. */
+function _clockRule(clock) {
+  let rule = clock.rule;
+  if (rule === undefined || rule === null) rule = 0;
+  else if (typeof rule === 'string') {
+    const id = Object.keys(CLOCK_RULES).find((k) => CLOCK_RULES[k] === rule);
+    if (id === undefined) throw new Error(`clock_info rule ${JSON.stringify(rule)} is not one v2 names`);
+    rule = Number(id);
+  }
+  if (!_isUint(rule, 8)) throw new Error(`clock_info rule ${rule} is not a rule id`);
+  const grants = clock.grants === undefined || clock.grants === null ? [0, 0] : clock.grants;
+  if (!Array.isArray(grants) || grants.length !== 2 || !grants.every((g) => _isUint(g, 8))) {
+    throw new Error(`clock_info grants ${JSON.stringify(grants)} are not two counts`);
+  }
+  return [rule, grants[0], grants[1]];
+}
+
 function _clockSection(doc, match) {
   const clock = doc.clock_info;
   if (clock === null || typeof clock !== 'object' || clock === undefined) return null;
   const flags = _optUint(clock, 'flags', 'clock_info', 8);
   const header = ['reserve_ms', 'delay_ms', 'increment_ms', 'start_timestamp']
-    .map((k) => _optUint(clock, k, 'clock_info')).concat([flags]);
+    .map((k) => _optUint(clock, k, 'clock_info')).concat([flags, ..._clockRule(clock)]);
   let precision = clock.precision;
   if (precision === undefined || precision === null) precision = CLOCK_PRECISION;
   if (!_isUint(precision) || precision < 1) throw new Error(`clock precision ${precision} is not a step`);
@@ -2030,7 +2085,7 @@ export function _encode(ogxm) {
     const stated = _nn(info.level);
     const blockEff = stated !== null ? _checkLevel(stated) : blockLevelOf(info, objs);
     const luckLabel = info.luck_eval_level || '1ply';
-    const { fields, items, nsources, currency } = _blockFields(info, match);
+    const { fields, items, nsources, currency } = _blockFields(info, match, objs);
     const ctx = new _Ctx(match, blockEff, currency, nsources, luckLabel);
     const [decs, extra, frames, places] = _blockRecords(match, select, ctx);
 
@@ -2205,7 +2260,12 @@ export function _assemble(parts, plan) {
     bodySections = secs.map((s) => s[1]);
   }
 
-  const minor = Math.max(match.pending_double_end ? 2 : (parts.uses_21 ? 1 : 0), plan.minor_floor);
+  // 2.3's additions this writer can make -- a stored table, a clock rule or a
+  // grant -- each raise the minor and none the reader's (spec 2.1).
+  const uses23 = plan.blocks.some(([anal]) => _decodeAnal(anal).met !== undefined)
+    || (plan.clck !== null && (plan.clck[17] || plan.clck[18] || plan.clck[19]));
+  const minor = Math.max(uses23 ? 3 : match.pending_double_end ? 2 : (parts.uses_21 ? 1 : 0),
+    plan.minor_floor);
   const minMinor = Math.max(match.pending_double_end ? 2 : 0, plan.min_minor_floor);
   const head = _cat(_enc.encode('OGXM'), _u16(2), _u16(minor), _u16(2), _u16(minMinor), _u32(0));
   const body = _cat(head, ...bodySections);

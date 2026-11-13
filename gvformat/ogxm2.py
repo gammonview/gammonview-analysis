@@ -7,7 +7,7 @@
 Mirrors ``gvformat-js/src/ogxm2.js``; keep the two in step. The reasoning lives
 there in full and is summarised here.
 
-v2 (HedgeHog's ``docs/OGXM_FORMAT_SPEC.md``, 2.2 at the time of writing) keeps
+v2 (HedgeHog's ``docs/OGXM_FORMAT_SPEC.md``, 2.3 at the time of writing) keeps
 v1's magic and changes nearly every byte: a 16-byte header, sections with a
 9-byte header, varint-framed records with a presence mask, plies addressed by
 one match-wide ordinal (``ply_ref``), and one ``DECS`` section holding every
@@ -65,8 +65,9 @@ from urllib.parse import unquote
 
 from .basefill import (
     _checker_is_decision, _cube_ply_is_decision, _trivial_cube, complete_base_block,
-    frame_perspective_is_white, mwc_frame,
+    frame_perspective_is_white, met_frame, mwc_frame,
 )
+from .met import met_table
 from .binary import DICE_TABLE
 from .reader import (
     GvabError, _attach_blocks, _cube_action_label, _derive_ogids, _eval_from_probs,
@@ -76,7 +77,7 @@ HEADER_SIZE = 16
 SECTION_HEADER_SIZE = 9
 END_MARKER = b"END!"
 READER_MAJOR = 2
-READER_MINOR = 2
+READER_MINOR = 3
 MAX_FILE_SIZE = 64 * 1024 * 1024
 
 KNOWN_SECTIONS = {
@@ -113,6 +114,9 @@ KIND_ROLL = 3
 
 CURRENCY_CUBEFUL_MONEY = 1
 CURRENCY_CUBEFUL_MATCH = 2
+CURRENCY_CUBELESS_MATCH = 3      # 9.10, 2.3
+#: The currencies quoted in match winning chance, which a match block converts.
+MWC_CURRENCIES = (CURRENCY_CUBEFUL_MATCH, CURRENCY_CUBELESS_MATCH)
 
 # What v2 has no field for, carried in ANNO under the `x-` namespace the spec
 # reserves for producers outside it (N6). See ogxm2_writer.py for what each
@@ -686,7 +690,22 @@ def _decode_anal(payload: bytes) -> dict:
         a["duration_ms"] = body.varint()
     if has(17):
         a["sources"] = [str(uuid.UUID(bytes=body.bytes(16))) for _ in range(body.varint())]
+    if has(18):
+        a["met"] = _decode_met(body)
     return a
+
+
+def _decode_met(cur: _Cursor) -> dict:
+    """[6.6] A ``met`` record: the table as six-place match winning chances."""
+    body, has = cur.record()
+
+    def table() -> list:
+        return [body.varint() / 1e6 for _ in range(body.varint())]
+
+    met: dict = {"pre_crawford": table()}
+    if has(0):
+        met["post_crawford"] = table()
+    return met
 
 
 def _decode_alternative(cur: _Cursor) -> dict:
@@ -1587,8 +1606,12 @@ def _v1_block(anal: dict, decisions: list[dict], ply_at: list, match_length: int
     records, which stand in for ``DECS``'s at their ply and kind, the flags to
     flip, and the source frames its values were converted through."""
     block_level = _resolve({}, anal.get("level"))
-    block_mwc = match_length > 0 and anal.get("currency") == CURRENCY_CUBEFUL_MATCH
+    block_mwc = match_length > 0 and anal.get("currency") in MWC_CURRENCIES
     block_obj: dict = {}
+    # Another producer's block that stores its table (2.3) converts on that table,
+    # and each ply states the frame it gave, so a rewrite converts back through it.
+    # A block of ours states its frames itself, in `frame=`.
+    table = met_table(anal.get("met")) if ours is None and match_length > 0 else None
     luck_levels: set = set()
     mine = ours is not None
 
@@ -1606,7 +1629,7 @@ def _v1_block(anal: dict, decisions: list[dict], ply_at: list, match_length: int
         key, ply = ply_at[d["ply_ref"]]
         kind = d["kind"]
         currency = d.get("currency", anal.get("currency"))
-        mwc = (match_length > 0 and currency == CURRENCY_CUBEFUL_MATCH
+        mwc = (match_length > 0 and currency in MWC_CURRENCIES
                if kind == KIND_CUBE else block_mwc)
         # A ply with no frame cannot be converted; its decision is dropped
         # rather than shown in the wrong unit. A block that states the source's
@@ -1614,6 +1637,8 @@ def _v1_block(anal: dict, decisions: list[dict], ply_at: list, match_length: int
         wire = _frame_in_force(ours["frames"], d["ply_ref"]) if mine and mwc else None
         source = (frame_from_wire(*wire, frame_perspective_is_white(ply))
                   if wire is not None else None)
+        if table is not None and mwc:
+            source = met_frame(ply, table)
         frame = mwc_frame(ply, source) if mwc else _IDENTITY
         if frame is None:
             continue
@@ -1655,6 +1680,13 @@ def _v1_block(anal: dict, decisions: list[dict], ply_at: list, match_length: int
             if wire is not None:
                 obj["mwc_frame"] = frame_from_wire(*wire, frame_perspective_is_white(ply_at[ref][1]))
 
+    if table is not None and block_mwc:
+        ref_of = {k: i for i, (k, _p) in enumerate(ply_at)}
+        for key, obj in block_obj.items():
+            frame = met_frame(ply_at[ref_of[key]][1], table)
+            if frame is not None:
+                obj["mwc_frame"] = frame
+
     info: dict = {"ply": block_level.get("checker_ply") or 0}
     if mine:
         # The block's own label travels in its annotation when it is not the
@@ -1672,6 +1704,11 @@ def _v1_block(anal: dict, decisions: list[dict], ply_at: list, match_length: int
         info["model_id"] = anal["model_id"]
     if anal.get("met_id"):
         info["met_id"] = anal["met_id"]
+    # The table is kept where it is another producer's: a block of ours stores
+    # our own, which the writer cuts again, unless its frames say it came from
+    # one that was not (a foreign block we rewrote).
+    if "met" in anal and (not mine or ours["frames"]):
+        info["met"] = anal["met"]
     info["timestamp"] = anal["started_at"] // 1000 if "started_at" in anal else 0
     if anal.get("duration_ms"):
         info["duration_ms"] = anal["duration_ms"]

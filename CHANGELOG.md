@@ -13,6 +13,32 @@ when the repository was opened; they are kept because they record why things
 are the way they are — particularly the breaking changes and the measurements
 behind several design decisions. Dates are the tag dates.
 
+## Unreleased
+
+**OGXM 2.3: files with a priced forfeit load** *(fixed)*
+
+HedgeHog's 2.3 places a `RESIGN` decision on a forfeit, and a file holding one
+names 2.3 as its minimum reader. OpenGammon writes one for every forfeited match
+it analyses, and `read_gvab` refused all of them ("file requires an OGXM 2.3
+reader"). The reader is now 2.3. A forfeit's price is read past rather than
+kept: it counts in no rating here, as a forfeit never has.
+
+**A match block's equity table travels with it** *(added)*
+
+2.3 lets a match block state the match equity table its MWCs were computed on
+(`ANAL.met`), and has a reader that finds none assume Rockwell-Kazaross. We
+convert on Kazaross-XG2, so every match-play file we wrote was read by other
+programs on a table that was not the one its numbers came from (by up to
+0.0007 MWC, at short scores). Every match block we write now states ours, cut at
+the match length; such a file has `version_minor` 3 and is still loaded by a 2.2
+reader. Another producer's block that states its table -- OpenGammon's, since
+October 2026, on Rockwell-Kazaross -- is now converted on that table rather than
+ours, and keeps it when rewritten. The clock's rule and extra-time grants (also
+2.3) are read and written.
+
+Behaviour change: the bytes of every match-play file we write change, and the
+goldens are regenerated for it; no equity in them moves.
+
 ## 3.3.0 — 2026-11-05
 
 **A money session is analysed under the rules it was played under** *(fixed)*

@@ -121,8 +121,8 @@ const plies = (doc) => doc.games.flatMap((g) => g.plies);
   assert(throwsGvab(() => readGvab(corrupt), /CSUM mismatch/), 'a corrupted byte fails the checksum');
 
   const later = data.slice();
-  later[10] = 3;                                   // min_reader_minor 3: a reader we are not
-  assert(throwsGvab(() => readGvab(later), /2\.3 reader/), 'a newer minimum reader is refused');
+  later[10] = 4;                                   // min_reader_minor 4: a reader we are not
+  assert(throwsGvab(() => readGvab(later), /2\.4 reader/), 'a newer minimum reader is refused');
 
   assert(throwsGvab(() => readGvab(data.subarray(0, data.length - 10)), /file_size/),
     'a truncated file is refused');
