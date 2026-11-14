@@ -498,7 +498,35 @@ def _split_span_nondouble(
                 order = legal
         first_d, second_d, mid = order[0]
         return [(f, first_d), (mid, second_d)]
+    if t == 0 and f != 25 and max(d1, d2) < dist < d1 + d2:
+        return _split_bearoff_excess(f, d1, d2, board)
     return [(f, dist)] if dist > 0 else []  # best-effort fallback
+
+
+def _split_bearoff_excess(
+    f: int, d1: int, d2: int, board: list[int] | None,
+) -> list[tuple[int, int]]:
+    """One checker borne off with both dice and pips to spare: 8/off with a 4-5.
+
+    The span is shorter than the dice (8 pips, not 9), because the second die
+    bears off from below its own number, so it matches neither die nor their
+    sum. Left to the single-hop fallback it became one 8-pip step, which a
+    ``pips`` field cannot hold, and the whole move was then dropped -- an
+    engine's best play shown as no move at all.
+
+    The second die may bear off with excess only from the mover's highest
+    point. Smaller die first stops higher, so it is the legal order whenever
+    either is -- unless the opponent holds that stop, and then only the other
+    can be.
+    """
+    lo, hi = sorted((d1, d2))
+    order = [(lo, hi), (hi, lo)]
+    if board is not None:
+        open_ = [o for o in order if board[f - o[0]] >= 0]
+        if open_:
+            order = open_
+    first, second = order[0]
+    return [(f, first), (f - first, second)]
 
 
 def _mover_to_abs(point_mover: int, mover_is_white: bool) -> int:

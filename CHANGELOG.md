@@ -13,6 +13,18 @@ when the repository was opened; they are kept because they record why things
 are the way they are — particularly the breaking changes and the measurements
 behind several design decisions. Dates are the tag dates.
 
+## 3.4.1 — 2026-11-13
+
+**A checker borne off with both dice and pips to spare keeps its steps** *(fixed)*
+
+8/off with a 4-5 is 8 pips, not 9: the 5 bears off from the 4-point with one to
+spare. The span matched neither die nor their sum, so it was split into a single
+8-pip step, which `pips` cannot hold, and the play was dropped. An analysed
+position or match showed the engine's best play as no move at all (the equity
+was right); a played move of that shape was restated as a set position. It is
+now 8/4, 4/off, smaller die first unless the opponent holds that stop, in both
+codecs. Files already written keep their empty play: re-analyse to repair them.
+
 ## 3.4.0 — 2026-11-13
 
 **OGXM 2.3: files with a priced forfeit load** *(fixed)*

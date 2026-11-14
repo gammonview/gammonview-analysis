@@ -342,11 +342,30 @@ function _splitSpanNondouble(f, t, d1, d2, board, hitPoints) {
     const [firstD, secondD, mid] = order[0];
     return [[f, firstD], [mid, secondD]];
   }
+  if (t === 0 && f !== 25 && Math.max(d1, d2) < dist && dist < d1 + d2) {
+    return _splitBearoffExcess(f, d1, d2, board);
+  }
   return dist > 0 ? [[f, dist]] : [];
 }
 
 function _moverToAbs(pointMover, moverIsWhite) {
   return moverIsWhite ? (25 - pointMover) : pointMover;
+}
+
+// One checker borne off with both dice and pips to spare: 8/off with a 4-5.
+// The span matches neither die nor their sum, and as one 8-pip step it was
+// dropped whole (see gvformat/export.py's _split_bearoff_excess). Smaller die
+// first stops higher, so it is the legal order unless the opponent holds that
+// stop.
+function _splitBearoffExcess(f, d1, d2, board) {
+  const lo = Math.min(d1, d2), hi = Math.max(d1, d2);
+  let order = [[lo, hi], [hi, lo]];
+  if (board) {
+    const open = order.filter(o => board[f - o[0]] >= 0);
+    if (open.length) order = open;
+  }
+  const [first, second] = order[0];
+  return [[f, first], [f - first, second]];
 }
 
 export function _computeMoveSteps(boardBeforeP1, boardAfterP1, moverIsWhite, d1, d2) {
