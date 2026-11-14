@@ -292,6 +292,18 @@ def _game_base_equal(ours: bytes, ref: bytes) -> bool:
 # Main
 # ---------------------------------------------------------------------------
 
+def _reference_json(doc: dict) -> str:
+    """`doc` as JSON for libogxm's writer, without our free-text `site`.
+
+    The reference writer takes the field under v2's meaning -- the host name of
+    the platform, `a-z0-9.-` only -- and since 2.3 refuses anything else as
+    CORRUPT_DATA ("SampleServer" is enough). Our `site` is where the match was
+    played and rides in an `x-gammonview-site` annotation, never in MTCH. The
+    reference's v1 MHDR never carried it either, so the byte comparisons below
+    lose nothing by dropping it."""
+    return json.dumps({k: v for k, v in doc.items() if k != "site"})
+
+
 def _writes_v1(data: bytes) -> bool:
     """Whether the reference writer produced OGXM v1. HedgeHog writes v2 only
     since its 2.x line, so the v1 byte-parity checks run only against a
@@ -373,7 +385,7 @@ def main() -> int:
     # 2. Base-chunk byte parity vs libogxm's own writer
     # =======================================================================
     print("--- 2. Base-chunk byte parity vs ogxm_json_to_binary ---")
-    ref_bytes = ogxm_ctypes.json_to_binary(json.dumps(ogxm))
+    ref_bytes = ogxm_ctypes.json_to_binary(_reference_json(ogxm))
     print(f"   reference (libogxm) -> {len(ref_bytes)} bytes")
     ours_chunks = _parse_chunks(our_bytes)
     if not _writes_v1(ref_bytes):
@@ -651,7 +663,7 @@ def main() -> int:
           f"4b. synthetic site round-trips ({synth_mhdr_gv['site']!r})")
 
     synth_games = synth_chunks.get(CHUNK_GAME, [])
-    synth_ref_bytes = ogxm_ctypes.json_to_binary(json.dumps(synthetic))
+    synth_ref_bytes = ogxm_ctypes.json_to_binary(_reference_json(synthetic))
     if not _writes_v1(synth_ref_bytes):
         print("   skipped: v1 byte parity needs a pre-v2 libogxm")
     else:

@@ -59,6 +59,7 @@ ENGINE_BACKED = frozenset({
     "test_gvab_writer.py",
     "test_illegal_play_steps.py",
     "test_luck_fill.py",
+    "test_money_rules.py",
     "test_ogxm2_blocks_analysis.py",
     "test_ogxm2_fields_analysis.py",
     "test_ogxm_export.py",
