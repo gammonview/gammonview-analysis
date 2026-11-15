@@ -76,6 +76,7 @@ enum Op {
     CUBE_3T = 4,          // and "truncated3"
     CHECKER_2T = 5,       // BgBotAnalyzer's "truncated2" checker play: the whole decision
     CHECKER_3T = 6,       // and "truncated3"
+    CHECKER_MATCH = 7,    // gvanalysis.checker_eval's screen, for match analysis
 };
 
 thread_local std::string last_error;
@@ -93,8 +94,9 @@ template<typename T, size_t N> void array(std::ostringstream& s, const std::arra
     s << ']';
 }
 void validate(const GvRequest& r, int op) {
-    const bool checker=(op==CHECKER || op==CHECKER_TRIMMED || op==CHECKER_2T || op==CHECKER_3T || op<0);
-    if(op<-1 || op>CHECKER_3T || r.ply<1 || r.ply>4 || r.cube_owner<0 || r.cube_owner>2 ||
+    const bool checker=(op==CHECKER || op==CHECKER_TRIMMED || op==CHECKER_2T || op==CHECKER_3T
+                        || op==CHECKER_MATCH || op<0);
+    if(op<-1 || op>CHECKER_MATCH || r.ply<1 || r.ply>4 || r.cube_owner<0 || r.cube_owner>2 ||
        r.cube_value<1 || r.cube_value>32768 || (r.cube_value & (r.cube_value-1)) ||
        r.away1<0 || r.away2<0 || r.away1>25 || r.away2>25 ||
        ((r.away1==0)!=(r.away2==0)) || r.budget_ms<1 || r.budget_ms>600000 ||
@@ -373,6 +375,77 @@ void checker_rollout(const GvEngine& e, const GvRequest& r, const Board& board, 
     } s << "]}";
 }
 
+// A checker play as gammonview-analysis's match analysis reads one
+// (`gvanalysis.checker_eval.checker_play`, staged, unseeded): every play at
+// 1-ply; past 2-ply, the top STAGE_SCREEN_MOVES (or every play within
+// STAGE_SCREEN_WINDOW of the 1-ply leader, at most STAGE_SCREEN_CAP) at 2-ply,
+// then those within STAGE_THRESHOLD of the 2-ply leader (at most
+// STAGE_MAX_MOVES) at full depth; at 2-ply, the flat screen -- within
+// ELEVATE_THRESHOLD (at most ELEVATE_MAX_MOVES, never fewer than
+// ELEVATE_MIN_MOVES) at full depth. The played move joins every stage. The
+// list is groups, deepest first, each sorted (stably) on its own equity, as
+// that module returns it; a one-ply request is the full search.
+void checker_match(const GvEngine& e, const GvRequest& r, const Board& board, const CubeInfo& ci,
+                   const std::function<void()>& check_budget, std::ostringstream& s) {
+    std::vector<Board> candidates; possible_boards(board,r.die1,r.die2,candidates);
+    std::vector<Move> out;
+    if(!candidates.empty() && r.ply==1) {
+        for(const auto& b:candidates) { Move m{}; m.board=b; score_1ply(e,board,ci,m); out.push_back(m); }
+        std::stable_sort(out.begin(),out.end(),[](const Move& a,const Move& b) { return a.equity>b.equity; });
+    } else if(!candidates.empty()) {
+        std::vector<Move> scored;
+        for(const auto& b:candidates) { Move m{}; m.board=b; score_1ply(e,board,ci,m); scored.push_back(m); }
+        std::stable_sort(scored.begin(),scored.end(),[](const Move& a,const Move& b) { return a.equity>b.equity; });
+        Board played{}; bool has_played=r.has_played!=0;
+        if(has_played) std::copy(r.played,r.played+26,played.begin());
+        // `_with_forced`: the played move's index, when not already chosen.
+        const auto with_played=[&](std::vector<int> chosen) {
+            if(!has_played) return chosen;
+            for(int i:chosen) if(scored[i].board==played) return chosen;
+            for(size_t i=0;i<scored.size();++i) if(scored[i].board==played) { chosen.push_back((int)i); break; }
+            return chosen;
+        };
+        const auto group=[&](std::vector<Move> ms,int ply) {
+            parallel((int)ms.size(), r.threads, [&](int k) { score_deep(e,board,ci,ply,ms[k]); });
+            std::stable_sort(ms.begin(),ms.end(),[](const Move& a,const Move& b) { return a.equity>b.equity; });
+            return ms;
+        };
+        std::vector<int> chosen;
+        std::vector<Move> deep, mid;
+        if(r.ply>2) {
+            const double lead1=scored[0].equity; int near=0;
+            for(const auto& m:scored) if(lead1-m.equity<0.2) ++near;
+            const size_t n2=std::max<size_t>(14,std::min(near,40));
+            for(size_t i=0;i<std::min(n2,scored.size());++i) chosen.push_back((int)i);
+            chosen=with_played(chosen);
+            std::vector<Move> b2; for(int i:chosen) b2.push_back(scored[i]);
+            mid=group(b2,2);
+            check_budget();
+            const double lead=mid[0].equity;
+            std::vector<Move> keep;
+            for(const auto& m:mid) { if(keep.size()==12) break; if(lead-m.equity<0.16) keep.push_back(m); }
+            if(has_played && std::none_of(keep.begin(),keep.end(),[&](const Move& m) { return m.board==played; }))
+                for(const auto& m:mid) if(m.board==played) { keep.push_back(m); break; }
+            deep=group(keep,r.ply);
+            std::vector<Move> rest;
+            for(const auto& m:mid)
+                if(std::none_of(keep.begin(),keep.end(),[&](const Move& k) { return k.board==m.board; })) rest.push_back(m);
+            mid=rest;
+        } else {
+            const double lead1=scored[0].equity; size_t near=0;
+            for(const auto& m:scored) { if(near==12) break; if(lead1-m.equity<0.16) ++near; }
+            for(size_t i=0;i<std::min(std::max<size_t>(near,14),scored.size());++i) chosen.push_back((int)i);
+            chosen=with_played(chosen);
+            std::vector<Move> b; for(int i:chosen) b.push_back(scored[i]);
+            deep=group(b,r.ply);
+        }
+        out=deep; out.insert(out.end(),mid.begin(),mid.end());
+        for(size_t i=0;i<scored.size();++i)
+            if(std::find(chosen.begin(),chosen.end(),(int)i)==chosen.end()) out.push_back(scored[i]);
+    }
+    write_moves(s,out);
+}
+
 // A cube decision at 2T or 3T: the rollout above, and the ND/DT/DP reading of
 // it that bgsage's Python binding does after `cubeful_cube_decision`
 // (`bindings.cpp`, RolloutStrategy.cube_decision). The beaver flag of the
@@ -504,6 +577,7 @@ char* gvengine_analyze(GvEngine* e, int op, const GvRequest* request) {
             case CUBE_3T: cube_rollout(*e,r,board,ci,3,s); break;
             case CHECKER_2T: checker_rollout(*e,r,board,ci,2,check_budget,s); break;
             case CHECKER_3T: checker_rollout(*e,r,board,ci,3,check_budget,s); break;
+            case CHECKER_MATCH: checker_match(*e,r,board,ci,check_budget,s); break;
         }
         check_budget(); auto text=s.str(); char* out=static_cast<char*>(std::malloc(text.size()+1));
         if(!out) throw std::bad_alloc(); std::memcpy(out,text.c_str(),text.size()+1);

@@ -72,6 +72,19 @@ for level, n in (("truncated2", 4), ("truncated3", 2)):
                                "cubeless_equity": m.get("cubeless_equity"), "eval_level": m["eval_level"]}
                               for m in a.checker_play_analytics(p["board"], *p["dice"], **settings(p))]
                              for p in positions[:n]]
+# Match analysis's own checker screen (gvanalysis.checker_eval), with a played
+# move forced into it -- the worst play at 2-ply, so the forcing is exercised.
+from gvanalysis.checker_eval import checker_play as match_checker_play
+out["match"] = {}
+for level in ("2ply", "3ply"):
+    a = BgBotAnalyzer(eval_level=level)
+    rows = []
+    for p, plays in zip(positions, out["checker"]["2ply"]):
+        played = plays[-1]["board"]
+        r = match_checker_play(a, p["board"], *p["dice"], force_boards=[played], **settings(p))
+        rows.append({"played": played, "moves": [{"board": list(m.board), "equity": m.equity,
+                     "cubeless_equity": m.cubeless_equity, "eval_level": m.eval_level} for m in r.moves]})
+    out["match"][level] = rows
 a = BgBotAnalyzer(eval_level="truncated3")._analyzer
 out["cube"]["truncated3"] = [{k: r[k] for k in ("equity_nd", "equity_dt", "equity_dp", "should_double", "should_take")}
                              for r in (a.cube_action_analytics(p["board"], **settings(p)) for p in positions[:3])]

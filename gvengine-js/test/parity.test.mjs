@@ -77,6 +77,21 @@ test("single-threaded build", { skip }, async (t) => {
             }
         });
     });
+    for (const [ply, name] of [[2, "2ply"], [3, "3ply"]]) {
+        await t.test(`match analysis's screen at ${name}, played move forced`, () => {
+            fixture.match[name].forEach(({ played, moves }, i) => {
+                const got = e.checker(fixture.positions[i], { ply, match: true, played });
+                assert.equal(got.moves.length, moves.length, `position ${i}: plays`);
+                moves.forEach((m, k) => {
+                    const g = got.moves[k];
+                    assert.deepEqual(g.board, m.board, `position ${i} row ${k}: order`);
+                    assert.equal(g.eval_level, m.eval_level, `position ${i} row ${k}: level`);
+                    assert.ok(Math.abs(g.equity - m.equity) < TOLERANCE, `position ${i} row ${k}: ${g.equity} vs ${m.equity}`);
+                    assert.ok(Math.abs(g.cubeless_equity - m.cubeless_equity) < TOLERANCE, `position ${i} row ${k}: cubeless`);
+                });
+            });
+        });
+    }
     await t.test("trimmed 3-ply: the played move is searched, however bad", () => {
         fixture.positions.forEach((p, i) => {
             const worst = fixture.checker["3ply"][i].at(-1);
