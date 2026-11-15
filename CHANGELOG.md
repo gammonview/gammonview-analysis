@@ -13,6 +13,19 @@ when the repository was opened; they are kept because they record why things
 are the way they are — particularly the breaking changes and the measurements
 behind several design decisions. Dates are the tag dates.
 
+## Unreleased
+
+**Individual moves can be evaluated from the library** *(added)*
+
+`gvanalysis.positionmove.analyze_moves(position_id, notations, level=...)`
+evaluates named moves of one checker play on their own, at any level, and
+returns rows shaped like `alternatives`. bgsage screens candidates at 1-ply and
+spends the requested level on only a handful, so the move you doubt is often in
+the shallow tail; this asks about that move alone instead of re-running the
+decision. At the rollout levels the number is the one a full run would have
+given. It lived in GammonView's analysis server until now; the desktop helper
+needs it too.
+
 ## 3.4.1 — 2026-11-13
 
 **A checker borne off with both dice and pips to spare keeps its steps** *(fixed)*
