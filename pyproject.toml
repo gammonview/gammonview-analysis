@@ -40,7 +40,8 @@ Issues = "https://github.com/gammonview/gammonview-analysis/issues"
 # and friends). `gvformat` needs none of this; install it only to run analysis.
 # bgsage is MPL-2.0, which is file-level copyleft and imposes nothing on this
 # package: we import it, never modify or redistribute its files (MPL-2.0 §3.3
-# covers the larger work regardless). That is why this repo can be MIT.
+# covers the larger work regardless). That is why this repo can be MIT. The
+# browser engine in gvengine-js/ is the one exception, and its MPL file says so.
 engine = [
     "bgsage>=2.0.20260907",
     "pyyaml>=6.0.3",
@@ -81,6 +82,12 @@ source = "vcs"
 exclude = [
     "/.claude",
     "/gvformat-js/node_modules",
+    # The browser engine's build inputs and outputs: a clone of bgsage, and
+    # bgsage's compiled engine and networks. Third-party, MPL-2.0, and
+    # gitignored only by gvengine-js/.gitignore -- the trap described below.
+    "/gvengine-js/.bgsage",
+    "/gvengine-js/build",
+    "/gvengine-js/dist",
 
     # Note for anyone adding an ignored directory later: hatchling honours the
     # *root* .gitignore and ignores nested ones. gvformat-js/samples/ was

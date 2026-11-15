@@ -141,8 +141,9 @@ than downstream. Python and JavaScript must agree byte-for-byte — the same
 `.gvab` in gives the same `.gva` JSON out — and the two test suites check that
 from either side.
 
-There is no JavaScript port of `gvanalysis`: analysis needs the engine, and the
-engine is Python-side only.
+There is no JavaScript port of `gvanalysis`. The engine itself does run in a
+browser: [`gvengine-js/`](gvengine-js/) is bgsage compiled to WebAssembly, held by
+its tests to native bgsage's numbers (not yet published).
 
 ## Command-line tools
 
@@ -240,6 +241,7 @@ tiers fire, parallelism, preset versions and custom presets.
 |---|---|
 | [`docs/CLI.md`](docs/CLI.md) | **Full command-line reference** — every flag, presets, parallelism |
 | [`gvformat-js/README.md`](gvformat-js/README.md) | The JavaScript package — API, layout, parity rules |
+| [`gvengine-js/README.md`](gvengine-js/README.md) | bgsage in the browser — the calls, the two builds, measured costs, building |
 | [`CONTRIBUTING.md`](CONTRIBUTING.md) | How to run the tests, the conventions, what a good change looks like |
 | [`CHANGELOG.md`](CHANGELOG.md) | Release history, including the measurements behind several design decisions |
 | [`CLAUDE.md`](CLAUDE.md) | Maintainer and coding-agent notes: design rationale, measurements, and the rituals around an engine upgrade |
@@ -267,8 +269,11 @@ implements, is MIT too.
 `[engine]` extra, is MPL-2.0, which constrains nothing here. MPL is *file-level*
 copyleft with no linking trigger: it attaches to its own files, and §3.3
 expressly permits distributing a larger work under other terms. bgsage resolves
-from PyPI at install time and is never modified or redistributed here, and
-`gvformat` does not touch the engine at all.
+from PyPI at install time and is never modified or redistributed by the Python
+packages, and `gvformat` does not touch the engine at all. The browser engine in
+[`gvengine-js/`](gvengine-js/) is the exception: its C entry point is a modified
+bgsage file, so it stays MPL-2.0, and so does what its build produces —
+[THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md) has the details.
 
 The JavaScript mirror ([`gvformat-js/`](gvformat-js/), published as
 `@gammonview/gvformat`) is under the same licence and ships its own copy.

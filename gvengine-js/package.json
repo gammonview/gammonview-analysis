@@ -1,0 +1,19 @@
+{
+  "name": "@gammonview/engine",
+  "version": "0.1.0",
+  "private": true,
+  "description": "bgsage compiled to WebAssembly, with its networks, giving native bgsage's numbers in a browser.",
+  "type": "module",
+  "license": "MPL-2.0 AND MIT",
+  "exports": {
+    ".": "./src/engine.js"
+  },
+  "scripts": {
+    "build": "./build.sh",
+    "fixtures": "uv run --no-project --with \"bgsage==$(cat bgsage.version)\" python -I scripts/fixtures.py",
+    "test": "node --test --test-timeout=600000 test/"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

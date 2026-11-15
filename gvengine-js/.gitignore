@@ -1,0 +1,4 @@
+# The pinned bgsage checkout, the patched copy compiled from it, and the output.
+.bgsage/
+build/
+dist/

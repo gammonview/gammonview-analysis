@@ -4,9 +4,11 @@ Backgammon analysis on the bgsage engine, split into two importable packages.
 **Licensed MIT** — every source file carries an SPDX header; `LICENSE` holds the
 full text. MIT because the deliverable is a format, and because upstream
 HedgeHog is MIT. bgsage being MPL-2.0 constrains nothing (file-level copyleft,
-§3.3, and we never modify or redistribute it). Two third-party notices must be
-preserved — HedgeHog's, for the four files ported from its C++, and the
-Kazaross-XG2 MET's — see `THIRD-PARTY-NOTICES.md` and the README's Licence
+§3.3, and the Python packages never modify or redistribute it). The exception
+is `gvengine-js/`, whose `entry.cpp` is a modified bgsage file and stays
+MPL-2.0, as does its build output. Three third-party notices must be
+preserved — HedgeHog's, for the four files ported from its C++, the
+Kazaross-XG2 MET's, and bgsage's for the browser engine — see `THIRD-PARTY-NOTICES.md` and the README's Licence
 section.
 
 - **`gvformat`** — the pure-stdlib GVA/OGXM codec (write/read `.gvab`, OGXM-JSON
@@ -59,6 +61,16 @@ section.
   `publishConfig.registry`, and GammonView must not carry a scoped `.npmrc`
   line — either one silently routes the scope away from npmjs. (The retired
   server's details are in the author's local notes, which are not tracked here.)
+- **`gvengine-js/`** — bgsage compiled to WebAssembly for the browser
+  (`@gammonview/engine`, `private` until gammonview ships it). Its whole promise
+  is **native bgsage's numbers**: `test/parity.test.mjs` holds every equity to
+  5e-6 of `BgBotAnalyzer` on fixtures `scripts/fixtures.py` writes, so a browser
+  and the Studio cannot disagree about a position. `bgsage.version` pins the
+  release both halves come from — the C++ from that GitHub tag, the networks
+  from that wheel — and should move with the `[engine]` floor: rebuild,
+  `npm run fixtures`, `npm test`. Needs emscripten to build; the test skips
+  without `dist/`. The build ignores are repeated in the sdist excludes, because
+  hatchling reads only the root `.gitignore`. See its README for costs.
 
 **OGXM is the pipeline's internal representation.** Every input — `.xg`,
 `.bgf`, `.mat`, `.gva`/`.ogxm` (OGXM JSON), or `.gvab` (OGXM binary) — is loaded
@@ -112,7 +124,8 @@ uv add bgsage --upgrade      # then check it landed under [engine], not base
 **2.0 (2026-09-07) is a licence change as much as an engine one: AGPL-3.0 →
 MPL-2.0.** MPL is file-level copyleft, so hosting analysis no longer carries
 AGPL §13's obligation to offer source to users; it attaches only to bgsage's
-own files if we modified them, which we don't.
+own files if we modified them, which the Python packages don't
+(`gvengine-js/src/entry.cpp` does, and is MPL-2.0 for it).
 
 The engine itself moved to Stage 11: 24 NNs instead of 19, Stage 9's 17
 standard nets carried unchanged plus specialists for backgames, containment,

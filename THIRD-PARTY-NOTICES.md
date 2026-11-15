@@ -68,13 +68,28 @@ this notice are preserved. This file is offered as-is, without any warranty.
 
 ---
 
+## bgsage — the browser engine (`gvengine-js/`)
+
+[bgsage](https://github.com/markbgsage/bgsage) (© 2026 Mark Higgins) is
+MPL-2.0. `gvengine-js/src/entry.cpp` is a modified copy of its
+`cpp/src/mobile.cpp` and stays under MPL-2.0, with the notice at its head.
+`gvengine-js/build.sh` compiles bgsage's sources at the tag in
+`gvengine-js/bgsage.version`, after one patch it makes and documents
+(`neural_net.cpp`'s SIMD path), and copies that release's networks and bearoff
+database into `gvengine-js/dist/` with bgsage's licence as
+`LICENSE-bgsage.txt`. None of that output is committed or in the sdist; whoever
+ships it ships it under MPL-2.0, pointing at bgsage's tag and at this directory.
+
+---
+
 ## Not bundled
 
 For completeness, since both are commonly assumed to be vendored here:
 
 - **bgsage** (MPL-2.0) — the analysis engine. An optional `[engine]` extra
-  resolved from PyPI at install time; no bgsage source is included in this
-  repository, and none of its files are modified.
+  resolved from PyPI at install time; the Python packages include no bgsage
+  source and modify none of its files. The browser engine is the exception,
+  above.
 - **pako** (MIT) — used by the JS mirror for zlib deflate. A declared npm
   dependency, installed by `npm install`; not vendored, and excluded from the
   Python sdist.
