@@ -13,7 +13,7 @@ when the repository was opened; they are kept because they record why things
 are the way they are — particularly the breaking changes and the measurements
 behind several design decisions. Dates are the tag dates.
 
-## Unreleased
+## 3.5.0 — 2026-11-15
 
 **Individual moves can be evaluated from the library** *(added)*
 
