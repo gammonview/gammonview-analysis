@@ -12,7 +12,7 @@
 
 const OWNERS = { centered: 0, player: 1, opponent: 2 };
 const OP = { checker: 0, cube: 1, checker_trimmed: 2, cube_2t: 3 };
-const REQUEST_INTS = 38;
+const REQUEST_INTS = 65;
 const DIR = "/gvengine";
 
 /**
@@ -49,7 +49,7 @@ export async function create_engine({ factory, manifest, read, module = {} }) {
     if (!handle) throw new Error(M.UTF8ToString(M._gvengine_last_error()));
     const request = M._malloc(4 * REQUEST_INTS);
 
-    function analyze(op, position, { ply = 2, threads = 1, budget_ms = 600_000 } = {}) {
+    function analyze(op, position, { ply = 2, threads = 1, budget_ms = 600_000, played } = {}) {
         const at = request >> 2;
         if (position.board?.length !== 26) throw new Error("board must have 26 points");
         position.board.forEach((n, i) => { M.HEAP32[at + i] = n; });
@@ -58,7 +58,9 @@ export async function create_engine({ factory, manifest, read, module = {} }) {
         if (owner === undefined) throw new Error(`unknown cube owner ${position.cube_owner}`);
         [die1, die2, ply, position.cube_value ?? 1, owner, position.away1 ?? 0, position.away2 ?? 0,
             position.is_crawford ? 1 : 0, position.jacoby === false ? 0 : 1, position.beaver === false ? 0 : 1,
-            budget_ms, threads].forEach((n, i) => { M.HEAP32[at + 26 + i] = n; });
+            budget_ms, threads, played ? 1 : 0].forEach((n, i) => { M.HEAP32[at + 26 + i] = n; });
+        if (played && played.length !== 26) throw new Error("played must have 26 points");
+        (played ?? []).forEach((n, i) => { M.HEAP32[at + 39 + i] = n; });
         const out = M._gvengine_analyze(handle, op, request);
         if (!out) throw new Error(M.UTF8ToString(M._gvengine_last_error()));
         try {
@@ -70,10 +72,12 @@ export async function create_engine({ factory, manifest, read, module = {} }) {
 
     return {
         /**
-         * Every legal play of `position.dice`, best first. `trimmed` screens
-         * them all at 1-ply and searches at most five at `ply` (each move's
-         * `eval_level` says which depth its number is from); without it every
-         * play is searched at `ply`, which is what BgBotAnalyzer does.
+         * Every legal play of `position.dice`, best first. Without `trimmed`
+         * every play is searched at `ply`, which is what BgBotAnalyzer does.
+         * `trimmed` screens them all at 1-ply, searches up to 16 at 2-ply and
+         * up to five of those at `ply`; each move's `eval_level` says which
+         * depth its number is from. `played`, a board after one of the legal
+         * plays, is always searched at `ply` -- pass it when grading a play.
          */
         checker: (position, { trimmed = false, ...options } = {}) =>
             analyze(trimmed ? OP.checker_trimmed : OP.checker, position, options),

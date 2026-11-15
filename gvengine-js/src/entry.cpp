@@ -53,7 +53,7 @@ struct GvEngine {
     std::shared_ptr<Strategy> strategy;
 };
 
-// The request, laid out as 38 consecutive int32s; `engine.js` writes it field
+// The request, laid out as 65 consecutive int32s; `engine.js` writes it field
 // by field, so the order here is the wire format.
 typedef struct {
     int board[26];
@@ -62,6 +62,8 @@ typedef struct {
     int away1, away2, is_crawford, jacoby, beaver;
     int budget_ms; // checked between candidates
     int threads;   // 1 = run on the calling thread only
+    int has_played;   // trimmed checker search: `played` is set
+    int played[26];   // the position after the play actually made
 } GvRequest;
 }
 
@@ -69,12 +71,12 @@ namespace {
 enum Op {
     CHECKER = 0,          // every candidate at full depth, cube-aware (BgBotAnalyzer's n-ply)
     CUBE = 1,             // n-ply cube decision
-    CHECKER_TRIMMED = 2,  // 1-ply screen, then at most five within 0.08 at full depth
+    CHECKER_TRIMMED = 2,  // 1-ply screen, a 2-ply cut, then at most five at full depth
     CUBE_2T = 3,          // BgBotAnalyzer's "truncated2" cube rollout
 };
 
 thread_local std::string last_error;
-struct Move { Board board; std::array<double, 5> probs; double equity, cubeless; bool deep; };
+struct Move { Board board; std::array<double, 5> probs; double equity, cubeless; int depth; };
 std::array<double, 5> widen(const std::array<float, 5>& p) {
     return {p[0], p[1], p[2], p[3], p[4]};
 }
@@ -110,16 +112,16 @@ void validate(const GvRequest& r, int op) {
 void score_1ply(const GvEngine& e, const Board& board, const CubeInfo& ci, Move& m) {
     auto p=e.strategy->evaluate_probs(m.board,board); m.probs=widen(p);
     auto [pp,op]=pip_counts(m.board); const auto x=cube_efficiency(p,is_race(m.board),pp,op);
-    m.equity=cl2cf(p,ci,x); m.cubeless=cl(m.probs); m.deep=false;
+    m.equity=cl2cf(p,ci,x); m.cubeless=cl(m.probs); m.depth=1;
 }
 
-// One candidate at full depth. Mirrors BgBotAnalyzer's cube-aware rescore,
+// One candidate at `ply`. Mirrors BgBotAnalyzer's cube-aware rescore,
 // including root routing and the flipped match state.
 void score_deep(const GvEngine& e, const Board& board, const CubeInfo& ci, int ply, Move& m) {
     const MoveFilter filter{5,0.08f};
     auto v=cubeful_probs_and_equity_nply(flip(m.board),flip_cube_perspective(ci),
         *e.strategy,ply,filter,1,nullptr,&board);
-    m.probs=invert(v.probs); m.equity=-v.equity; m.cubeless=cl(m.probs); m.deep=true;
+    m.probs=invert(v.probs); m.equity=-v.equity; m.cubeless=cl(m.probs); m.depth=ply;
 }
 
 // multipy_parallel_for, except that one thread never touches the pool: the
@@ -135,14 +137,36 @@ bool better(const Move& a, const Move& b) {
     return a.board<b.board;
 }
 
-void write_moves(std::ostringstream& s, const std::vector<Move>& moves, int ply) {
+void write_moves(std::ostringstream& s, const std::vector<Move>& moves) {
     s << "{\"moves\":[";
     for(size_t i=0;i<moves.size();++i) { const auto& m=moves[i]; if(i) s << ',';
         s << "{\"board\":"; array(s,m.board); s << ",\"probs\":"; array(s,m.probs);
         s << ",\"equity\":" << m.equity << ",\"cubeless_equity\":" << m.cubeless
           << ",\"equity_diff\":" << m.equity-moves[0].equity
-          << ",\"eval_level\":\"" << (m.deep ? ply : 1) << "-ply\"}";
+          << ",\"eval_level\":\"" << m.depth << "-ply\"}";
     } s << "]}";
+}
+
+// The trimmed search's two cuts, as (at most, within) of the best value at the
+// stage before. Chosen on 911 decisions from real matches, scored against the
+// full search: with the played move searched too, the best play it misses is a
+// tie (< 0.0005 equity), and no graded play moves by 0.01 -- at about a
+// quarter of the time, and a tenth of the worst case. The 2-ply stage is
+// what earns that: a one-stage cut straight from 1-ply to five plays missed
+// three times as often, by up to 0.048.
+constexpr int SCREEN_KEEP=16;   constexpr double SCREEN_WINDOW=0.20;   // 1-ply -> 2-ply
+constexpr int SEARCH_KEEP=5;    constexpr double SEARCH_WINDOW=0.08;   // 2-ply -> full depth
+
+// Keep the best `keep` of `alive` within `window` of the best of them, by
+// their current values, and search those at `ply`.
+void cut(const GvEngine& e, const GvRequest& r, const Board& board, const CubeInfo& ci,
+         std::vector<Move>& moves, std::vector<int>& alive, int keep, double window, int ply) {
+    std::sort(alive.begin(),alive.end(),[&](int a,int b) { return better(moves[a],moves[b]); });
+    const double best=moves[alive[0]].equity;
+    std::vector<int> kept;
+    for(int i:alive) { if((int)kept.size()==keep) break; if(best-moves[i].equity<window) kept.push_back(i); }
+    alive=kept;
+    parallel((int)alive.size(), r.threads, [&](int k) { score_deep(e,board,ci,ply,moves[alive[k]]); });
 }
 
 void checker(const GvEngine& e, const GvRequest& r, const Board& board, const CubeInfo& ci,
@@ -151,32 +175,41 @@ void checker(const GvEngine& e, const GvRequest& r, const Board& board, const Cu
     std::vector<Move> moves(candidates.size());
     for(size_t i=0;i<candidates.size();++i) moves[i].board=candidates[i];
     if(r.ply==1) {
-        for(auto& m:moves) { check_budget(); score_1ply(e,board,ci,m); m.deep=true; }
+        for(auto& m:moves) { check_budget(); score_1ply(e,board,ci,m); }
     } else if(!trimmed) {
         parallel((int)moves.size(), r.threads, [&](int i) { score_deep(e,board,ci,r.ply,moves[i]); });
         check_budget();
-    } else {
+    } else if(!moves.empty()) {
         for(auto& m:moves) score_1ply(e,board,ci,m);
-        std::sort(moves.begin(),moves.end(),better);
-        std::vector<int> first;
-        for(size_t i=0;i<moves.size() && i<5;++i)
-            if(moves[0].equity-moves[i].equity<0.08) first.push_back((int)i);
-        parallel((int)first.size(), r.threads, [&](int k) { score_deep(e,board,ci,r.ply,moves[first[k]]); });
-        // The rule BgBotAnalyzer keeps (`_first_stale_top_two`): no 1-ply
+        std::vector<int> alive(moves.size());
+        for(size_t i=0;i<moves.size();++i) alive[i]=(int)i;
+        cut(e,r,board,ci,moves,alive,SCREEN_KEEP,SCREEN_WINDOW,2);
+        check_budget();
+        if(r.ply>2) { cut(e,r,board,ci,moves,alive,SEARCH_KEEP,SEARCH_WINDOW,r.ply); check_budget(); }
+        // The play being graded is searched whatever the cuts thought of it,
+        // so its error is measured between two full-depth numbers -- as
+        // BgBotAnalyzer's `force_boards` does for the same reason.
+        if(r.has_played) {
+            Board played{}; std::copy(r.played,r.played+26,played.begin());
+            auto it=std::find_if(moves.begin(),moves.end(),[&](const Move& m) { return m.board==played; });
+            if(it==moves.end()) throw std::invalid_argument("played board is not a legal play");
+            if(it->depth<r.ply) score_deep(e,board,ci,r.ply,*it);
+        }
+        // The rule BgBotAnalyzer keeps (`_first_stale_top_two`): no shallow
         // value may sit in the top two, because whenever the deep search
-        // values every survivor below a pruned move's 1-ply number, that move
-        // would otherwise top the list on a value nobody checked.
+        // values every survivor below a pruned move's shallower number, that
+        // move would otherwise top the list on a value nobody checked.
         for(;;) {
             check_budget();
             std::sort(moves.begin(),moves.end(),better);
-            auto stale=std::find_if(moves.begin(),moves.begin()+std::min<size_t>(2,moves.size()),
-                [](const Move& m) { return !m.deep; });
-            if(stale==moves.begin()+std::min<size_t>(2,moves.size())) break;
+            const auto top=moves.begin()+std::min<size_t>(2,moves.size());
+            auto stale=std::find_if(moves.begin(),top,[&](const Move& m) { return m.depth<r.ply; });
+            if(stale==top) break;
             score_deep(e,board,ci,r.ply,*stale);
         }
     }
     std::sort(moves.begin(),moves.end(),better);
-    write_moves(s,moves,r.ply);
+    write_moves(s,moves);
 }
 
 void cube_nply(const GvEngine& e, const GvRequest& r, const Board& board, const CubeInfo& ci,

@@ -65,15 +65,28 @@ test("single-threaded build", { skip }, async (t) => {
             fixture.positions.forEach((p, i) => same_cube(e.cube(p, { ply }), fixture.cube[`${ply}ply`][i], `${ply}ply position ${i}`));
         }
     });
-    await t.test("trimmed 3-ply: the deep plays carry the full search's numbers", () => {
+    await t.test("trimmed 3-ply: every number is the full search's at its own depth", () => {
         fixture.positions.forEach((p, i) => {
             const got = e.checker(p, { ply: 3, trimmed: true });
-            const full = new Map(fixture.checker["3ply"][i].map((m) => [m.board.join(), m.equity]));
-            const deep = got.moves.filter((m) => m.eval_level === "3-ply");
-            assert.ok(deep.length >= Math.min(2, got.moves.length), `position ${i}: top two searched`);
-            assert.ok(got.moves.slice(0, 2).every((m) => m.eval_level === "3-ply"), `position ${i}: a 1-ply value in the top two`);
-            for (const m of deep) assert.ok(Math.abs(m.equity - full.get(m.board.join())) < TOLERANCE, `position ${i}`);
+            const full = { "2-ply": fixture.checker["2ply"][i], "3-ply": fixture.checker["3ply"][i] };
+            for (const level of Object.keys(full)) full[level] = new Map(full[level].map((m) => [m.board.join(), m.equity]));
+            assert.ok(got.moves.slice(0, 2).every((m) => m.eval_level === "3-ply"), `position ${i}: a shallow value in the top two`);
+            for (const m of got.moves) {
+                if (!full[m.eval_level]) continue;
+                assert.ok(Math.abs(m.equity - full[m.eval_level].get(m.board.join())) < TOLERANCE, `position ${i} ${m.eval_level}`);
+            }
         });
+    });
+    await t.test("trimmed 3-ply: the played move is searched, however bad", () => {
+        fixture.positions.forEach((p, i) => {
+            const worst = fixture.checker["3ply"][i].at(-1);
+            const got = e.checker(p, { ply: 3, trimmed: true, played: worst.board });
+            const m = got.moves.find((x) => x.board.join() === worst.board.join());
+            assert.equal(m.eval_level, "3-ply", `position ${i}`);
+            assert.ok(Math.abs(m.equity - worst.equity) < TOLERANCE, `position ${i}`);
+        });
+        assert.throws(() => e.checker(fixture.positions[0], { ply: 3, trimmed: true, played: fixture.positions[0].board }),
+            /not a legal play/);
     });
     e.destroy();
 });

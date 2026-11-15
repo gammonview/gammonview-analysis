@@ -13,7 +13,7 @@ Not published yet (`"private": true`); gammonview is the first consumer.
 | Call | What it is | Same as |
 |---|---|---|
 | `checker(pos, {ply})` | every legal play searched at `ply`, cube-aware | BgBotAnalyzer `Nply` |
-| `checker(pos, {ply, trimmed: true})` | every play at 1-ply, then at most five within 0.08 at `ply`, and no 1-ply value left in the top two | the deep plays' numbers are exact; the rest are 1-ply |
+| `checker(pos, {ply, trimmed: true, played})` | every play at 1-ply; up to 16 within 0.20 at 2-ply; up to five of those within 0.08 at `ply`; `played` and the top two always at `ply` | each play's number is exact for its `eval_level` |
 | `cube(pos, {ply})` | n-ply cube decision | BgBotAnalyzer `Nply` |
 | `cube(pos, {level: "2T"})` | 360 trials truncated at 7, 2-ply inside | BgBotAnalyzer `truncated2` |
 
@@ -59,7 +59,14 @@ may differ. Typical and worst over a seeded sample, checker plays:
 |---|---|---|---|
 | 2-ply | 75 ms / 0.95 s | 21 ms / 0.27 s | — |
 | 3-ply | 0.71 s / 16 s | 0.20 s / 4.3 s | 0.12 s / 2.2 s |
-| 3-ply trimmed | 0.13 s / 1.1 s | 0.06 s / 0.8 s | 0.06 s / 0.8 s |
+
+Trimmed 3-ply, on 911 checker decisions from real matches with the played move
+passed (typical / 99th percentile / worst): **88 ms / 0.46 s / 0.67 s** on one
+thread, 55 ms / 0.30 s / 0.51 s on four, 52 ms / 0.28 s / 0.49 s on eight.
+Against the full search over the same decisions it chose a different play 3
+times, at a worst cost of 0.00026, and no graded play's error moved by 0.01.
+A one-stage cut (1-ply straight to five) missed 12 times, by up to 0.048, and
+misgraded 41 plays by more than 0.02.
 
 Cube decisions: 3-ply 54 ms on one thread, 2T 1.0 s / 2.7 s on eight. 4-ply
 checker play is not interactive at any thread count (16 threads: 1.9 s / 23 s).
