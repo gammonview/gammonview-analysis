@@ -182,6 +182,7 @@ built-ins:
 | `very_quick` (`vq`) | `2ply` | — | — | Very quick |
 | `fast` (`f`) | `2ply` | — | `3ply` | Fast |
 | `deep` (`d`) | `3ply` | — | — | Deep |
+| `world_class_lite` (`wcl`) | `3ply` | — | `truncated2` | — (World Class without its middle tier) |
 | `world_class` (`wc`) | `3ply` | `4ply` | `truncated2` | World Class (XG Roller+) |
 
 The second pass runs on an **error**; the middle tier runs on a **borderline**

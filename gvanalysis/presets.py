@@ -139,6 +139,20 @@ _BUILTIN_SPECS: dict[str, dict] = {
                     "close_threshold": {"checker": 0.08, "cube": 0.12},
                     "error_threshold": {"checker": DEFAULT_ERROR_THRESHOLD, "cube": 0.0},
                     "aliases": ["wc", "worldclass"]},
+    # World Class without its middle tier: the 3-ply screen, and the same 2T
+    # rollout on the same errors (checker plays above 0.02, cubes on any wrong
+    # action), with nothing deepened to 4-ply on a near-tie. Defined for the
+    # browser, where the 4-ply tier is what does not fit: it was 49% of
+    # world_class's checker decisions and most of its non-rollout cost. It is
+    # roughly world_class before @2 added that tier, so its agreement with XG
+    # is world_class@1's, which three matches could not tell apart from @2's.
+    # A method of its own, with a label of its own -- not a cheaper way of
+    # getting world_class's numbers, which is what world_class_fast was
+    # retired for claiming to be.
+    "world_class_lite": {"display": "World Class Lite", "revision": 1,
+                         "first_pass": "3ply", "second_pass": "truncated2",
+                         "error_threshold": {"checker": DEFAULT_ERROR_THRESHOLD, "cube": 0.0},
+                         "aliases": ["wcl"]},
     # TODO Extensive: needs a full-completion `rollout` second pass plus a tiered
     # outplay-vs-error escalation trigger, so it is not yet defined.
 }
@@ -189,6 +203,7 @@ _REVISIONS: dict[str, dict[int, str]] = {
     "fast": {1: "7030cc90eace", 2: "a44dc6c17c2f"},
     "deep": {1: "f0d71d4caf31", 2: "062a598d4e7f"},
     "world_class": {1: "e5b1989b5c6c", 2: "5b8d38df0b0d"},
+    "world_class_lite": {1: "d82bc491d048"},
 }
 
 #: What a custom preset's name may be: it is written into the label, so it
