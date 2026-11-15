@@ -92,6 +92,15 @@ test("single-threaded build", { skip }, async (t) => {
             });
         });
     }
+    for (const [ply, name] of [[2, "2ply"], [3, "3ply"]]) {
+        await t.test(`a played board at ${name}, as post_move_analytics reads it`, () => {
+            fixture.post_move[name].forEach(({ board, equity, cubeless_equity }, i) => {
+                const got = e.post_move(fixture.positions[i], board, { ply });
+                assert.ok(Math.abs(got.equity - equity) < TOLERANCE, `position ${i}: ${got.equity} vs ${equity}`);
+                assert.ok(Math.abs(got.cubeless_equity - cubeless_equity) < TOLERANCE, `position ${i}: cubeless`);
+            });
+        });
+    }
     await t.test("trimmed 3-ply: the played move is searched, however bad", () => {
         fixture.positions.forEach((p, i) => {
             const worst = fixture.checker["3ply"][i].at(-1);

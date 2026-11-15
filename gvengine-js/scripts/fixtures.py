@@ -85,6 +85,17 @@ for level in ("2ply", "3ply"):
         rows.append({"played": played, "moves": [{"board": list(m.board), "equity": m.equity,
                      "cubeless_equity": m.cubeless_equity, "eval_level": m.eval_level} for m in r.moves]})
     out["match"][level] = rows
+# post_move_analytics of a played board, as match analysis sizes an illegal play.
+out["post_move"] = {}
+for level in ("2ply", "3ply"):
+    a = BgBotAnalyzer(eval_level=level)
+    rows = []
+    for p, plays in zip(positions, out["checker"]["2ply"]):
+        b = plays[-1]["board"]
+        r = a.post_move_analytics(b, cube_owner=p["cube_owner"], cube_value=p["cube_value"], away1=p["away1"],
+                                  away2=p["away2"], is_crawford=p["is_crawford"], jacoby=p["jacoby"])
+        rows.append({"board": b, "equity": r.cubeful_equity, "cubeless_equity": r.cubeless_equity})
+    out["post_move"][level] = rows
 a = BgBotAnalyzer(eval_level="truncated3")._analyzer
 out["cube"]["truncated3"] = [{k: r[k] for k in ("equity_nd", "equity_dt", "equity_dp", "should_double", "should_take")}
                              for r in (a.cube_action_analytics(p["board"], **settings(p)) for p in positions[:3])]

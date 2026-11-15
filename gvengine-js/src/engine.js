@@ -11,7 +11,7 @@
 // a time gives that for free.
 
 const OWNERS = { centered: 0, player: 1, opponent: 2 };
-const OP = { checker: 0, cube: 1, checker_trimmed: 2, cube_2t: 3, cube_3t: 4, checker_2t: 5, checker_3t: 6, checker_match: 7 };
+const OP = { checker: 0, cube: 1, checker_trimmed: 2, cube_2t: 3, cube_3t: 4, checker_2t: 5, checker_3t: 6, checker_match: 7, post_move: 8 };
 const ROLLOUT_LEVELS = { "2T": 2, "3T": 3 };
 const REQUEST_INTS = 65;
 const DIR = "/gvengine";
@@ -120,6 +120,15 @@ export async function create_engine({ factory, manifest, read, module = {} }) {
                 M._free(ptr);
             }
         },
+        /**
+         * The board `after` a play, at `ply`, as BgBotAnalyzer's
+         * post_move_analytics reads it: `{probs, cubeless_equity, equity,
+         * eval_level}` from the mover's side. For a played board a move list
+         * does not hold (match analysis's illegal plays). `position` gives the
+         * cube and score; its board and dice are not read.
+         */
+        post_move: (position, after, { ply = 3, ...options } = {}) =>
+            analyze(OP.post_move, position, { ply, ...options, played: after }),
         destroy() {
             M._free(request);
             M._gvengine_destroy(handle);

@@ -77,6 +77,7 @@ enum Op {
     CHECKER_2T = 5,       // BgBotAnalyzer's "truncated2" checker play: the whole decision
     CHECKER_3T = 6,       // and "truncated3"
     CHECKER_MATCH = 7,    // gvanalysis.checker_eval's screen, for match analysis
+    POST_MOVE = 8,        // BgBotAnalyzer.post_move_analytics of `played`, at n-ply
 };
 
 thread_local std::string last_error;
@@ -96,7 +97,7 @@ template<typename T, size_t N> void array(std::ostringstream& s, const std::arra
 void validate(const GvRequest& r, int op) {
     const bool checker=(op==CHECKER || op==CHECKER_TRIMMED || op==CHECKER_2T || op==CHECKER_3T
                         || op==CHECKER_MATCH || op<0);
-    if(op<-1 || op>CHECKER_MATCH || r.ply<1 || r.ply>4 || r.cube_owner<0 || r.cube_owner>2 ||
+    if(op<-1 || op>POST_MOVE || r.ply<1 || r.ply>4 || r.cube_owner<0 || r.cube_owner>2 ||
        r.cube_value<1 || r.cube_value>32768 || (r.cube_value & (r.cube_value-1)) ||
        r.away1<0 || r.away2<0 || r.away1>25 || r.away2>25 ||
        ((r.away1==0)!=(r.away2==0)) || r.budget_ms<1 || r.budget_ms>600000 ||
@@ -446,6 +447,31 @@ void checker_match(const GvEngine& e, const GvRequest& r, const Board& board, co
     write_moves(s,out);
 }
 
+// One post-move board, as BgBotAnalyzer.post_move_analytics reads it at an
+// n-ply level: cubeless probabilities from the cube-aware tree on the side about
+// to roll (`cubeful_probs_nply`, the cube and the scores turned round, beavers
+// left at the binding's default), then the cubeful equity by Janowski on those
+// probabilities from the mover's side. Match analysis asks this of a played
+// board the move list does not hold -- an illegal or restated play.
+void post_move(const GvEngine& e, const GvRequest& r, const CubeInfo& ci, std::ostringstream& s) {
+    if(!r.has_played) throw std::invalid_argument("no board to evaluate");
+    Board b{}; std::copy(r.played,r.played+26,b.begin());
+    std::array<double,5> probs; double cf;
+    if(r.ply==1) {
+        Move m{}; m.board=b; score_1ply(e,b,ci,m); probs=m.probs; cf=m.equity;
+    } else {
+        CubeInfo opp=flip_cube_perspective(ci); opp.beaver=ci.is_money();
+        const auto op=cubeful_probs_nply(flip(b),opp,*e.strategy,r.ply,MoveFilter{5,0.08f},r.threads);
+        probs=invert(op);
+        std::array<float,5> p; for(int i=0;i<5;++i) p[i]=static_cast<float>(probs[i]);
+        auto [pp,opc]=pip_counts(b); const auto x=cube_efficiency(p,is_race(b),pp,opc);
+        cf=cl2cf(p,ci,x);
+    }
+    s << "{\"board\":"; array(s,b); s << ",\"probs\":"; array(s,probs);
+    s << ",\"cubeless_equity\":" << cl(probs) << ",\"equity\":" << cf
+      << ",\"eval_level\":\"" << r.ply << "-ply\"}";
+}
+
 // A cube decision at 2T or 3T: the rollout above, and the ND/DT/DP reading of
 // it that bgsage's Python binding does after `cubeful_cube_decision`
 // (`bindings.cpp`, RolloutStrategy.cube_decision). The beaver flag of the
@@ -578,6 +604,7 @@ char* gvengine_analyze(GvEngine* e, int op, const GvRequest* request) {
             case CHECKER_2T: checker_rollout(*e,r,board,ci,2,check_budget,s); break;
             case CHECKER_3T: checker_rollout(*e,r,board,ci,3,check_budget,s); break;
             case CHECKER_MATCH: checker_match(*e,r,board,ci,check_budget,s); break;
+            case POST_MOVE: post_move(*e,r,ci,s); break;
         }
         check_budget(); auto text=s.str(); char* out=static_cast<char*>(std::malloc(text.size()+1));
         if(!out) throw std::bad_alloc(); std::memcpy(out,text.c_str(),text.size()+1);
