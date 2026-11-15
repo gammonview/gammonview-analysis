@@ -99,5 +99,23 @@ test("threaded build", { skip }, async (t) => {
     await t.test("cube decisions at 2T", () => {
         fixture.positions.forEach((p, i) => same_cube(e.cube(p, { level: "2T", threads: 4 }), fixture.cube.truncated2[i], `position ${i}`));
     });
+    await t.test("cube decisions at 3T", () => {
+        fixture.cube.truncated3.forEach((want, i) => same_cube(e.cube(fixture.positions[i], { level: "3T", threads: 8 }), want, `position ${i}`));
+    });
+    for (const [level, name] of [["2T", "truncated2"], ["3T", "truncated3"]]) {
+        await t.test(`single plays rolled out at ${level}, as /position/moves does`, () => {
+            fixture.rollout[name].forEach((want, i) => {
+                const got = e.rollout(fixture.positions[i], want.map((m) => m.board), { level, threads: 8 });
+                want.forEach((m, k) => {
+                    assert.deepEqual(got.moves[k].board, m.board);
+                    assert.ok(Math.abs(got.moves[k].equity - m.equity) < TOLERANCE, `position ${i} play ${k}: ${got.moves[k].equity} vs ${m.equity}`);
+                    assert.ok(Math.abs(got.moves[k].cubeless_equity - m.cubeless_equity) < TOLERANCE, `position ${i} play ${k} cubeless`);
+                });
+            });
+        });
+    }
+    await t.test("a rollout refuses a board that is not a legal play", () => {
+        assert.throws(() => e.rollout(fixture.positions[0], [fixture.positions[0].board]), /not a legal play/);
+    });
     e.destroy();
 });

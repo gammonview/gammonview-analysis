@@ -34,7 +34,7 @@ FLAGS=(-std=c++17 -O3 -fno-math-errno -funroll-loops -msimd128 -mfpu=neon -DGV_W
        -fexceptions -Ibuild/include
        -sALLOW_MEMORY_GROWTH=1 -sMODULARIZE=1 -sEXPORT_ES6=1 -sENVIRONMENT=web,worker,node
        -sFORCE_FILESYSTEM=1 -sSTACK_SIZE=8MB
-       -sEXPORTED_FUNCTIONS=_gvengine_create,_gvengine_destroy,_gvengine_analyze,_gvengine_free,_gvengine_last_error,_malloc,_free
+       -sEXPORTED_FUNCTIONS=_gvengine_create,_gvengine_destroy,_gvengine_analyze,_gvengine_free,_gvengine_last_error,_gvengine_rollout_moves,_malloc,_free
        -sEXPORTED_RUNTIME_METHODS=FS,UTF8ToString,stringToNewUTF8,HEAP32)
 
 # Two builds. Threads need SharedArrayBuffer, which a browser grants only to a

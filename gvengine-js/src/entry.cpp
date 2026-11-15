@@ -73,6 +73,7 @@ enum Op {
     CUBE = 1,             // n-ply cube decision
     CHECKER_TRIMMED = 2,  // 1-ply screen, a 2-ply cut, then at most five at full depth
     CUBE_2T = 3,          // BgBotAnalyzer's "truncated2" cube rollout
+    CUBE_3T = 4,          // and "truncated3"
 };
 
 thread_local std::string last_error;
@@ -90,8 +91,8 @@ template<typename T, size_t N> void array(std::ostringstream& s, const std::arra
     s << ']';
 }
 void validate(const GvRequest& r, int op) {
-    const bool checker=(op==CHECKER || op==CHECKER_TRIMMED);
-    if(op<CHECKER || op>CUBE_2T || r.ply<1 || r.ply>4 || r.cube_owner<0 || r.cube_owner>2 ||
+    const bool checker=(op==CHECKER || op==CHECKER_TRIMMED || op<0);
+    if(op<-1 || op>CUBE_3T || r.ply<1 || r.ply>4 || r.cube_owner<0 || r.cube_owner>2 ||
        r.cube_value<1 || r.cube_value>32768 || (r.cube_value & (r.cube_value-1)) ||
        r.away1<0 || r.away2<0 || r.away1>25 || r.away2>25 ||
        ((r.away1==0)!=(r.away2==0)) || r.budget_ms<1 || r.budget_ms>600000 ||
@@ -239,18 +240,31 @@ void cube_nply(const GvEngine& e, const GvRequest& r, const Board& board, const 
       << ",\"eval_level\":\"" << r.ply << "-ply\",\"cubeless_se\":null,\"equity_nd_se\":null,\"equity_dt_se\":null}";
 }
 
-// BgBotAnalyzer's "truncated2" for a cube decision: its RolloutConfig, and the
-// ND/DT/DP reading of the result that bgsage's Python binding does after
-// `cubeful_cube_decision` (`bindings.cpp`, RolloutStrategy.cube_decision).
-// The beaver flag of the result is not reproduced; nothing here reads it yet.
-void cube_2t(const GvEngine& e, const GvRequest& r, const Board& board, const CubeInfo& ci,
-             std::ostringstream& s) {
+// BgBotAnalyzer's "truncated2" and "truncated3" rollouts (analyzer.py, the
+// eval_level branches): 360 trials truncated at 7, with seed 42 -- whose dice
+// are stratified from the seed and cached on the strategy, so every board
+// rolled out under one config sees the same 360 sequences, as on the server.
+RolloutConfig rollout_config(int level, int threads) {
     RolloutConfig rc;
-    rc.n_trials=360; rc.truncation_depth=7; rc.decision_ply=2; rc.truncation_ply=2;
-    rc.n_threads=r.threads; rc.seed=42; rc.late_ply=1; rc.late_threshold=1;
-    rc.parallelize_trials=true; rc.cube.ply=2; rc.cube_late.ply=2;
-    rc.ultra_late_threshold=9999; rc.cubeful_trial_moves=true; rc.cubeful_late_threshold=0;
-    RolloutStrategy rollout(e.base,rc); rollout.set_bearoff_db(&e.db);
+    rc.n_trials=360; rc.truncation_depth=7; rc.n_threads=threads; rc.seed=42;
+    rc.parallelize_trials=true; rc.ultra_late_threshold=9999;
+    rc.cubeful_trial_moves=true; rc.cubeful_late_threshold=0;
+    if(level==2) {
+        rc.decision_ply=2; rc.truncation_ply=2; rc.late_ply=1; rc.late_threshold=1;
+        rc.cube.ply=2; rc.cube_late.ply=2;
+    } else {
+        rc.decision_ply=3; rc.late_ply=2; rc.late_threshold=2;
+    }
+    return rc;
+}
+
+// A cube decision at 2T or 3T: the rollout above, and the ND/DT/DP reading of
+// it that bgsage's Python binding does after `cubeful_cube_decision`
+// (`bindings.cpp`, RolloutStrategy.cube_decision). The beaver flag of the
+// result is not reproduced; nothing here reads it yet.
+void cube_rollout(const GvEngine& e, const GvRequest& r, const Board& board, const CubeInfo& ci,
+                  int level, std::ostringstream& s) {
+    RolloutStrategy rollout(e.base,rollout_config(level,r.threads)); rollout.set_bearoff_db(&e.db);
     const auto cfr=rollout.cubeful_cube_decision(board,ci);
     const bool can=can_double(ci);
     float nd,dt,dp; bool should_double,should_take;
@@ -310,6 +324,48 @@ void gvengine_destroy(GvEngine* e) { delete e; }
 void gvengine_free(char* p) { std::free(p); }
 const char* gvengine_last_error() { return last_error.c_str(); }
 
+// Named plays of a checker decision, each rolled out at 2T or 3T: what the
+// server's `POST /position/moves` answers (gvanalysis.positionmove, through
+// BgBotAnalyzer.post_move_analytics, to RolloutStrategy::
+// cubeful_rollout_position). `boards` is `count` post-move boards of 26 ints,
+// each one a legal play of the request's dice. Probabilities are the
+// rollout's own, as the server's are for an upgraded row.
+char* gvengine_rollout_moves(GvEngine* e, int level, const GvRequest* request,
+                             const int* boards, int count) {
+    try {
+        if(!e || !request || !boards) throw std::invalid_argument("engine unavailable");
+        if(level!=2 && level!=3) throw std::invalid_argument("unsupported rollout level");
+        if(count<1 || count>8) throw std::invalid_argument("between 1 and 8 moves");
+        const auto& r=*request; validate(r,-1);
+        Board board{}; std::copy(r.board,r.board+26,board.begin());
+        CubeInfo ci{r.cube_value,static_cast<CubeOwner>(r.cube_owner),
+            {r.away1,r.away2,r.is_crawford!=0},-1.0f,
+            r.away1==0 && r.jacoby!=0,r.away1==0 && r.beaver!=0};
+        std::vector<Board> legal; possible_boards(board,r.die1,r.die2,legal);
+        std::vector<Board> wanted(count);
+        for(int i=0;i<count;++i) {
+            std::copy(boards+26*i,boards+26*(i+1),wanted[i].begin());
+            if(std::find(legal.begin(),legal.end(),wanted[i])==legal.end())
+                throw std::invalid_argument("not a legal play");
+        }
+        RolloutStrategy rollout(e->base,rollout_config(level,r.threads)); rollout.set_bearoff_db(&e->db);
+        std::ostringstream s; s.imbue(std::locale::classic()); s << std::setprecision(17);
+        s << "{\"moves\":[";
+        for(int i=0;i<count;++i) {
+            const auto cpr=rollout.cubeful_rollout_position(wanted[i],ci);
+            if(i) s << ',';
+            s << "{\"board\":"; array(s,wanted[i]); s << ",\"probs\":"; array(s,cpr.cubeless.mean_probs);
+            s << ",\"cubeless_equity\":" << cpr.cubeless.equity << ",\"equity\":" << cpr.cubeful_equity
+              << ",\"se\":" << cpr.cubeful_se << ",\"eval_level\":\"" << level << "T\"}";
+        }
+        s << "]}";
+        auto text=s.str(); char* out=static_cast<char*>(std::malloc(text.size()+1));
+        if(!out) throw std::bad_alloc(); std::memcpy(out,text.c_str(),text.size()+1);
+        last_error.clear(); return out;
+    } catch(const std::exception& ex) { last_error=ex.what(); return nullptr; }
+    catch(...) { last_error="evaluation failed"; return nullptr; }
+}
+
 // JSON text the caller frees with gvengine_free, or null with the reason in
 // gvengine_last_error. Never a partial result.
 char* gvengine_analyze(GvEngine* e, int op, const GvRequest* request) {
@@ -329,7 +385,8 @@ char* gvengine_analyze(GvEngine* e, int op, const GvRequest* request) {
             case CHECKER: checker(*e,r,board,ci,false,check_budget,s); break;
             case CHECKER_TRIMMED: checker(*e,r,board,ci,true,check_budget,s); break;
             case CUBE: cube_nply(*e,r,board,ci,check_budget,s); break;
-            case CUBE_2T: cube_2t(*e,r,board,ci,s); break;
+            case CUBE_2T: cube_rollout(*e,r,board,ci,2,s); break;
+            case CUBE_3T: cube_rollout(*e,r,board,ci,3,s); break;
         }
         check_budget(); auto text=s.str(); char* out=static_cast<char*>(std::malloc(text.size()+1));
         if(!out) throw std::bad_alloc(); std::memcpy(out,text.c_str(),text.size()+1);

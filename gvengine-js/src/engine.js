@@ -11,7 +11,8 @@
 // a time gives that for free.
 
 const OWNERS = { centered: 0, player: 1, opponent: 2 };
-const OP = { checker: 0, cube: 1, checker_trimmed: 2, cube_2t: 3 };
+const OP = { checker: 0, cube: 1, checker_trimmed: 2, cube_2t: 3, cube_3t: 4 };
+const ROLLOUT_LEVELS = { "2T": 2, "3T": 3 };
 const REQUEST_INTS = 65;
 const DIR = "/gvengine";
 
@@ -49,7 +50,7 @@ export async function create_engine({ factory, manifest, read, module = {} }) {
     if (!handle) throw new Error(M.UTF8ToString(M._gvengine_last_error()));
     const request = M._malloc(4 * REQUEST_INTS);
 
-    function analyze(op, position, { ply = 2, threads = 1, budget_ms = 600_000, played } = {}) {
+    function write_request(position, { ply = 2, threads = 1, budget_ms = 600_000, played } = {}) {
         const at = request >> 2;
         if (position.board?.length !== 26) throw new Error("board must have 26 points");
         position.board.forEach((n, i) => { M.HEAP32[at + i] = n; });
@@ -61,13 +62,20 @@ export async function create_engine({ factory, manifest, read, module = {} }) {
             budget_ms, threads, played ? 1 : 0].forEach((n, i) => { M.HEAP32[at + 26 + i] = n; });
         if (played && played.length !== 26) throw new Error("played must have 26 points");
         (played ?? []).forEach((n, i) => { M.HEAP32[at + 39 + i] = n; });
-        const out = M._gvengine_analyze(handle, op, request);
+    }
+
+    function read_reply(out) {
         if (!out) throw new Error(M.UTF8ToString(M._gvengine_last_error()));
         try {
             return JSON.parse(M.UTF8ToString(out));
         } finally {
             M._gvengine_free(out);
         }
+    }
+
+    function analyze(op, position, options) {
+        write_request(position, options);
+        return read_reply(M._gvengine_analyze(handle, op, request));
     }
 
     return {
@@ -81,9 +89,31 @@ export async function create_engine({ factory, manifest, read, module = {} }) {
          */
         checker: (position, { trimmed = false, ...options } = {}) =>
             analyze(trimmed ? OP.checker_trimmed : OP.checker, position, options),
-        /** The cube decision at `ply`, or at 2T with `{ level: "2T" }`. */
+        /** The cube decision at `ply`, or rolled out with `{ level: "2T" }` or "3T". */
         cube: (position, { level, ...options } = {}) =>
-            level === "2T" ? analyze(OP.cube_2t, position, options) : analyze(OP.cube, position, options),
+            level === "2T" ? analyze(OP.cube_2t, position, options)
+                : level === "3T" ? analyze(OP.cube_3t, position, options)
+                    : analyze(OP.cube, position, options),
+        /**
+         * Named plays of `position.dice`, each rolled out at `level` ("2T" or
+         * "3T"): `boards` are the positions after them, at most eight. What the
+         * server's `POST /position/moves` answers, move for move.
+         */
+        rollout(position, boards, { level = "2T", ...options } = {}) {
+            if (!ROLLOUT_LEVELS[level]) throw new Error(`unknown rollout level ${level}`);
+            if (!boards?.length || boards.length > 8) throw new Error("between 1 and 8 moves");
+            write_request(position, options);
+            const ptr = M._malloc(4 * 26 * boards.length);
+            try {
+                boards.forEach((b, i) => {
+                    if (b.length !== 26) throw new Error("a board has 26 points");
+                    b.forEach((n, j) => { M.HEAP32[(ptr >> 2) + 26 * i + j] = n; });
+                });
+                return read_reply(M._gvengine_rollout_moves(handle, ROLLOUT_LEVELS[level], request, ptr, boards.length));
+            } finally {
+                M._free(ptr);
+            }
+        },
         destroy() {
             M._free(request);
             M._gvengine_destroy(handle);
