@@ -11,7 +11,7 @@
 // a time gives that for free.
 
 const OWNERS = { centered: 0, player: 1, opponent: 2 };
-const OP = { checker: 0, cube: 1, checker_trimmed: 2, cube_2t: 3, cube_3t: 4, checker_2t: 5, checker_3t: 6, checker_match: 7, post_move: 8, rolls: 9 };
+const OP = { checker: 0, cube: 1, checker_trimmed: 2, cube_2t: 3, cube_3t: 4, checker_2t: 5, checker_3t: 6, checker_match: 7, post_move: 8, rolls: 9, post_move_2t: 10, post_move_3t: 11 };
 const ROLLOUT_LEVELS = { "2T": 2, "3T": 3 };
 const REQUEST_INTS = 65;
 const DIR = "/gvengine";
@@ -103,7 +103,9 @@ export async function create_engine({ factory, manifest, read, module = {} }) {
         /**
          * Named plays of `position.dice`, each rolled out at `level` ("2T" or
          * "3T"): `boards` are the positions after them, at most eight. What the
-         * server's `POST /position/moves` answers, move for move.
+         * server's `POST /position/moves` answers, move for move. A row whose
+         * board the bearoff database holds also carries `bearoff`, its exact
+         * probabilities.
          */
         rollout(position, boards, { level = "2T", ...options } = {}) {
             if (!ROLLOUT_LEVELS[level]) throw new Error(`unknown rollout level ${level}`);
@@ -125,10 +127,14 @@ export async function create_engine({ factory, manifest, read, module = {} }) {
          * post_move_analytics reads it: `{probs, cubeless_equity, equity,
          * eval_level}` from the mover's side. For a played board a move list
          * does not hold (match analysis's illegal plays). `position` gives the
-         * cube and score; its board and dice are not read.
+         * cube and score; its board and dice are not read. With `level` ("2T"
+         * or "3T") the board is rolled out instead, and the reply adds `se`.
          */
-        post_move: (position, after, { ply = 3, ...options } = {}) =>
-            analyze(OP.post_move, position, { ply, ...options, played: after }),
+        post_move: (position, after, { ply = 3, level, ...options } = {}) => {
+            if (level && !ROLLOUT_LEVELS[level]) throw new Error(`unknown rollout level ${level}`);
+            const op = level === "2T" ? OP.post_move_2t : level === "3T" ? OP.post_move_3t : OP.post_move;
+            return analyze(op, position, { ply: level ? 1 : ply, ...options, played: after });
+        },
         /**
          * Each of the 21 rolls from `position`, with its best play at 1-ply:
          * `{rolls: [{dice: [a, b], equity, top}]}`, a <= b, where `top` is the

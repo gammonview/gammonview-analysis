@@ -79,6 +79,8 @@ enum Op {
     CHECKER_MATCH = 7,    // gvanalysis.checker_eval's screen, for match analysis
     POST_MOVE = 8,        // BgBotAnalyzer.post_move_analytics of `played`, at n-ply
     ROLLS = 9,            // the best 1-ply play of each of the 21 rolls: luck's sweep
+    POST_MOVE_2T = 10,    // post_move_analytics of `played` at "truncated2"
+    POST_MOVE_3T = 11,    // and "truncated3"
 };
 
 thread_local std::string last_error;
@@ -98,7 +100,7 @@ template<typename T, size_t N> void array(std::ostringstream& s, const std::arra
 void validate(const GvRequest& r, int op) {
     const bool checker=(op==CHECKER || op==CHECKER_TRIMMED || op==CHECKER_2T || op==CHECKER_3T
                         || op==CHECKER_MATCH || op<0);
-    if(op<-1 || op>ROLLS || r.ply<1 || r.ply>4 || r.cube_owner<0 || r.cube_owner>2 ||
+    if(op<-1 || op>POST_MOVE_3T || r.ply<1 || r.ply>4 || r.cube_owner<0 || r.cube_owner>2 ||
        r.cube_value<1 || r.cube_value>32768 || (r.cube_value & (r.cube_value-1)) ||
        r.away1<0 || r.away2<0 || r.away1>25 || r.away2>25 ||
        ((r.away1==0)!=(r.away2==0)) || r.budget_ms<1 || r.budget_ms>600000 ||
@@ -473,6 +475,22 @@ void post_move(const GvEngine& e, const GvRequest& r, const CubeInfo& ci, std::o
       << ",\"eval_level\":\"" << r.ply << "-ply\"}";
 }
 
+// One post-move board, as BgBotAnalyzer.post_move_analytics reads it at a
+// rollout level: the board rolled out cube-aware (`cubeful_evaluate_board`,
+// cubeful trial moves being bgsage's default), probabilities and both equities
+// from the same trials. A rollout tier of match analysis asks this of a played
+// board its move list does not hold.
+void post_move_rollout(const GvEngine& e, const GvRequest& r, const CubeInfo& ci, int level,
+                       std::ostringstream& s) {
+    if(!r.has_played) throw std::invalid_argument("no board to evaluate");
+    Board b{}; std::copy(r.played,r.played+26,b.begin());
+    RolloutStrategy rollout(e.base,rollout_config(level,r.threads)); rollout.set_bearoff_db(&e.db);
+    const auto cpr=rollout.cubeful_rollout_position(b,ci);
+    s << "{\"board\":"; array(s,b); s << ",\"probs\":"; array(s,cpr.cubeless.mean_probs);
+    s << ",\"cubeless_equity\":" << cpr.cubeless.equity << ",\"equity\":" << cpr.cubeful_equity
+      << ",\"se\":" << cpr.cubeful_se << ",\"eval_level\":\"Rollout\"}";
+}
+
 // The 21 rolls from `board`, each answered with its best play at 1-ply -- the
 // first row of the 1-ply checker search, ranked as that search ranks -- or
 // null where the roll has no play. What luck sweeps (`_compute_luck`), one
@@ -599,7 +617,12 @@ char* gvengine_rollout_moves(GvEngine* e, int level, const GvRequest* request,
             if(i) s << ',';
             s << "{\"board\":"; array(s,wanted[i]); s << ",\"probs\":"; array(s,cpr.cubeless.mean_probs);
             s << ",\"cubeless_equity\":" << cpr.cubeless.equity << ",\"equity\":" << cpr.cubeful_equity
-              << ",\"se\":" << cpr.cubeful_se << ",\"eval_level\":\"" << level << "T\"}";
+              << ",\"se\":" << cpr.cubeful_se << ",\"eval_level\":\"" << level << "T\"";
+            // A board the bearoff database holds exactly: its probabilities,
+            // which a seeded rollout tier reports in place of the trials'
+            // (checker_eval._rollout_seeded).
+            if(e->db.is_bearoff(wanted[i])) { s << ",\"bearoff\":"; array(s,e->db.lookup_probs(wanted[i],true)); }
+            s << '}';
         }
         s << "]}";
         auto text=s.str(); char* out=static_cast<char*>(std::malloc(text.size()+1));
@@ -635,6 +658,8 @@ char* gvengine_analyze(GvEngine* e, int op, const GvRequest* request) {
             case CHECKER_MATCH: checker_match(*e,r,board,ci,check_budget,s); break;
             case POST_MOVE: post_move(*e,r,ci,s); break;
             case ROLLS: rolls(*e,r,board,ci,s); break;
+            case POST_MOVE_2T: post_move_rollout(*e,r,ci,2,s); break;
+            case POST_MOVE_3T: post_move_rollout(*e,r,ci,3,s); break;
         }
         check_budget(); auto text=s.str(); char* out=static_cast<char*>(std::malloc(text.size()+1));
         if(!out) throw std::bad_alloc(); std::memcpy(out,text.c_str(),text.size()+1);
