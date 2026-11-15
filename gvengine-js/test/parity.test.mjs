@@ -101,6 +101,18 @@ test("single-threaded build", { skip }, async (t) => {
             });
         });
     }
+    await t.test("the 21-roll sweep is each roll's 1-ply best", () => {
+        fixture.positions.forEach((p, i) => {
+            const { rolls } = e.rolls(p);
+            assert.equal(rolls.length, 21);
+            for (const { dice, equity, top } of rolls) {
+                const { moves } = e.checker({ ...p, dice }, { ply: 1 });
+                if (!moves.length) { assert.equal(equity, null, `position ${i} ${dice}`); continue; }
+                assert.equal(equity, moves[0].equity, `position ${i} ${dice}`);
+                assert.equal(top, Math.max(...moves[0].board), `position ${i} ${dice} top`);
+            }
+        });
+    });
     await t.test("trimmed 3-ply: the played move is searched, however bad", () => {
         fixture.positions.forEach((p, i) => {
             const worst = fixture.checker["3ply"][i].at(-1);
@@ -153,6 +165,9 @@ test("threaded build", { skip }, async (t) => {
             });
         });
     }
+    await t.test("the 21-roll sweep on eight threads is the same sweep", () => {
+        fixture.positions.forEach((p) => assert.deepEqual(e.rolls(p, { threads: 8 }), e.rolls(p)));
+    });
     await t.test("a rollout refuses a board that is not a legal play", () => {
         assert.throws(() => e.rollout(fixture.positions[0], [fixture.positions[0].board]), /not a legal play/);
     });

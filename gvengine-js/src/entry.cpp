@@ -78,6 +78,7 @@ enum Op {
     CHECKER_3T = 6,       // and "truncated3"
     CHECKER_MATCH = 7,    // gvanalysis.checker_eval's screen, for match analysis
     POST_MOVE = 8,        // BgBotAnalyzer.post_move_analytics of `played`, at n-ply
+    ROLLS = 9,            // the best 1-ply play of each of the 21 rolls: luck's sweep
 };
 
 thread_local std::string last_error;
@@ -97,7 +98,7 @@ template<typename T, size_t N> void array(std::ostringstream& s, const std::arra
 void validate(const GvRequest& r, int op) {
     const bool checker=(op==CHECKER || op==CHECKER_TRIMMED || op==CHECKER_2T || op==CHECKER_3T
                         || op==CHECKER_MATCH || op<0);
-    if(op<-1 || op>POST_MOVE || r.ply<1 || r.ply>4 || r.cube_owner<0 || r.cube_owner>2 ||
+    if(op<-1 || op>ROLLS || r.ply<1 || r.ply>4 || r.cube_owner<0 || r.cube_owner>2 ||
        r.cube_value<1 || r.cube_value>32768 || (r.cube_value & (r.cube_value-1)) ||
        r.away1<0 || r.away2<0 || r.away1>25 || r.away2>25 ||
        ((r.away1==0)!=(r.away2==0)) || r.budget_ms<1 || r.budget_ms>600000 ||
@@ -472,6 +473,34 @@ void post_move(const GvEngine& e, const GvRequest& r, const CubeInfo& ci, std::o
       << ",\"eval_level\":\"" << r.ply << "-ply\"}";
 }
 
+// The 21 rolls from `board`, each answered with its best play at 1-ply -- the
+// first row of the 1-ply checker search, ranked as that search ranks -- or
+// null where the roll has no play. What luck sweeps (`_compute_luck`), one
+// roll to a thread: each roll is a separate small search, so they share out
+// where nothing inside one 1-ply search would. In order d1 <= d2, d1 slowest.
+void rolls(const GvEngine& e, const GvRequest& r, const Board& board, const CubeInfo& ci,
+           std::ostringstream& s) {
+    struct Answer { bool any=false; double equity=0; int top=0; };
+    std::vector<std::pair<int,int>> dice;
+    for(int a=1;a<=6;++a) for(int b=a;b<=6;++b) dice.push_back({a,b});
+    std::vector<Answer> out(dice.size());
+    parallel((int)dice.size(), r.threads, [&](int k) {
+        std::vector<Board> candidates; possible_boards(board,dice[k].first,dice[k].second,candidates);
+        if(candidates.empty()) return;
+        std::vector<Move> moves(candidates.size());
+        for(size_t i=0;i<candidates.size();++i) { moves[i].board=candidates[i]; score_1ply(e,board,ci,moves[i]); }
+        const auto best=*std::min_element(moves.begin(),moves.end(),better);
+        out[k].any=true; out[k].equity=best.equity;
+        out[k].top=*std::max_element(best.board.begin(),best.board.end());
+    });
+    s << "{\"rolls\":[";
+    for(size_t k=0;k<dice.size();++k) { if(k) s << ',';
+        s << "{\"dice\":[" << dice[k].first << ',' << dice[k].second << "],\"equity\":";
+        if(out[k].any) s << out[k].equity << ",\"top\":" << out[k].top; else s << "null";
+        s << "}";
+    } s << "]}";
+}
+
 // A cube decision at 2T or 3T: the rollout above, and the ND/DT/DP reading of
 // it that bgsage's Python binding does after `cubeful_cube_decision`
 // (`bindings.cpp`, RolloutStrategy.cube_decision). The beaver flag of the
@@ -605,6 +634,7 @@ char* gvengine_analyze(GvEngine* e, int op, const GvRequest* request) {
             case CHECKER_3T: checker_rollout(*e,r,board,ci,3,check_budget,s); break;
             case CHECKER_MATCH: checker_match(*e,r,board,ci,check_budget,s); break;
             case POST_MOVE: post_move(*e,r,ci,s); break;
+            case ROLLS: rolls(*e,r,board,ci,s); break;
         }
         check_budget(); auto text=s.str(); char* out=static_cast<char*>(std::malloc(text.size()+1));
         if(!out) throw std::bad_alloc(); std::memcpy(out,text.c_str(),text.size()+1);

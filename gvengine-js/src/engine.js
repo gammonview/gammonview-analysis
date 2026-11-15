@@ -11,7 +11,7 @@
 // a time gives that for free.
 
 const OWNERS = { centered: 0, player: 1, opponent: 2 };
-const OP = { checker: 0, cube: 1, checker_trimmed: 2, cube_2t: 3, cube_3t: 4, checker_2t: 5, checker_3t: 6, checker_match: 7, post_move: 8 };
+const OP = { checker: 0, cube: 1, checker_trimmed: 2, cube_2t: 3, cube_3t: 4, checker_2t: 5, checker_3t: 6, checker_match: 7, post_move: 8, rolls: 9 };
 const ROLLOUT_LEVELS = { "2T": 2, "3T": 3 };
 const REQUEST_INTS = 65;
 const DIR = "/gvengine";
@@ -129,6 +129,13 @@ export async function create_engine({ factory, manifest, read, module = {} }) {
          */
         post_move: (position, after, { ply = 3, ...options } = {}) =>
             analyze(OP.post_move, position, { ply, ...options, played: after }),
+        /**
+         * Each of the 21 rolls from `position`, with its best play at 1-ply:
+         * `{rolls: [{dice: [a, b], equity, top}]}`, a <= b, where `top` is the
+         * largest point count on that play's board, and `equity` is null for
+         * a roll with no play. Luck's sweep, one roll to a thread.
+         */
+        rolls: (position, options = {}) => analyze(OP.rolls, position, { ...options, ply: 1 }),
         destroy() {
             M._free(request);
             M._gvengine_destroy(handle);
