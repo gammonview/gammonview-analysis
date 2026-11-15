@@ -65,6 +65,13 @@ for level, n in (("truncated2", len(positions)), ("truncated3", 3)):
             res.append({"board": b, "equity": r.cubeful_equity, "cubeless_equity": r.cubeless_equity})
         rows.append(res)
     out["rollout"][level] = rows
+# Whole checker decisions at the rollout levels: four at 2T, two at 3T.
+for level, n in (("truncated2", 4), ("truncated3", 2)):
+    a = BgBotAnalyzer(eval_level=level)._analyzer
+    out["checker"][level] = [[{"board": list(m["board"]), "equity": m["equity"],
+                               "cubeless_equity": m.get("cubeless_equity"), "eval_level": m["eval_level"]}
+                              for m in a.checker_play_analytics(p["board"], *p["dice"], **settings(p))]
+                             for p in positions[:n]]
 a = BgBotAnalyzer(eval_level="truncated3")._analyzer
 out["cube"]["truncated3"] = [{k: r[k] for k in ("equity_nd", "equity_dt", "equity_dp", "should_double", "should_take")}
                              for r in (a.cube_action_analytics(p["board"], **settings(p)) for p in positions[:3])]

@@ -114,6 +114,21 @@ test("threaded build", { skip }, async (t) => {
             });
         });
     }
+    for (const [level, name] of [["2T", "truncated2"], ["3T", "truncated3"]]) {
+        await t.test(`whole checker decisions at ${level}, as BgBotAnalyzer reads them`, () => {
+            fixture.checker[name].forEach((want, i) => {
+                const got = e.checker(fixture.positions[i], { level, threads: 8 });
+                assert.equal(got.moves.length, want.length, `position ${i}: number of plays`);
+                const by_board = new Map(got.moves.map((m) => [m.board.join(), m]));
+                for (const m of want) {
+                    const g = by_board.get(m.board.join());
+                    assert.equal(g.eval_level, m.eval_level, `position ${i}: ${m.board} level`);
+                    assert.ok(Math.abs(g.equity - m.equity) < TOLERANCE, `position ${i} ${m.eval_level}: ${g.equity} vs ${m.equity}`);
+                }
+                assert.equal(got.moves[0].board.join(), want[0].board.join(), `position ${i}: best play`);
+            });
+        });
+    }
     await t.test("a rollout refuses a board that is not a legal play", () => {
         assert.throws(() => e.rollout(fixture.positions[0], [fixture.positions[0].board]), /not a legal play/);
     });

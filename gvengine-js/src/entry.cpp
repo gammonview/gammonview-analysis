@@ -74,6 +74,8 @@ enum Op {
     CHECKER_TRIMMED = 2,  // 1-ply screen, a 2-ply cut, then at most five at full depth
     CUBE_2T = 3,          // BgBotAnalyzer's "truncated2" cube rollout
     CUBE_3T = 4,          // and "truncated3"
+    CHECKER_2T = 5,       // BgBotAnalyzer's "truncated2" checker play: the whole decision
+    CHECKER_3T = 6,       // and "truncated3"
 };
 
 thread_local std::string last_error;
@@ -91,8 +93,8 @@ template<typename T, size_t N> void array(std::ostringstream& s, const std::arra
     s << ']';
 }
 void validate(const GvRequest& r, int op) {
-    const bool checker=(op==CHECKER || op==CHECKER_TRIMMED || op<0);
-    if(op<-1 || op>CUBE_3T || r.ply<1 || r.ply>4 || r.cube_owner<0 || r.cube_owner>2 ||
+    const bool checker=(op==CHECKER || op==CHECKER_TRIMMED || op==CHECKER_2T || op==CHECKER_3T || op<0);
+    if(op<-1 || op>CHECKER_3T || r.ply<1 || r.ply>4 || r.cube_owner<0 || r.cube_owner>2 ||
        r.cube_value<1 || r.cube_value>32768 || (r.cube_value & (r.cube_value-1)) ||
        r.away1<0 || r.away2<0 || r.away1>25 || r.away2>25 ||
        ((r.away1==0)!=(r.away2==0)) || r.budget_ms<1 || r.budget_ms>600000 ||
@@ -258,6 +260,119 @@ RolloutConfig rollout_config(int level, int threads) {
     return rc;
 }
 
+// A whole checker decision at 2T or 3T, as BgBotAnalyzer reads one: its
+// rollout analyzer's `checker_play_analytics` (stage 1, every play at 1-ply,
+// kept within 0.15; stage 2, those at 2-ply, kept to five within 0.08 and at
+// least two; the survivors rolled out), then its cubeful wrapper's rollout
+// path (every other play given a cubeful value at the rollout's decision ply,
+// and whichever play tops the list rolled out until a rolled-out one does).
+// Order-sensitive steps keep Python's: the filters' sorts are stable on the
+// cubeful value alone, and the final order is `_move_order_key`'s.
+struct Scored { Board board; std::array<double,5> probs; double cl, cf; };
+
+std::vector<Scored> score_with(const Strategy& strategy, const std::vector<Board>& boards,
+                               const Board& board, const CubeInfo& ci) {
+    std::vector<Scored> out;
+    for(const auto& b:boards) {
+        const auto p=strategy.evaluate_probs(b,board);
+        auto [pp,op]=pip_counts(b); const auto x=cube_efficiency(p,is_race(b),pp,op);
+        out.push_back({b,widen(p),NeuralNetwork::compute_equity(p),cl2cf(p,ci,x)});
+    }
+    std::stable_sort(out.begin(),out.end(),[](const Scored& a,const Scored& b) { return a.cf>b.cf; });
+    return out;
+}
+
+std::vector<Scored> keep(const std::vector<Scored>& scored, double window, size_t most) {
+    std::vector<Scored> out;
+    for(const auto& s:scored) {
+        if(out.size()==most) break;
+        if(scored[0].cf-s.cf<window) out.push_back(s);
+    }
+    return out;
+}
+
+struct Row { Board board; std::array<double,5> probs; double cl, cf, se; const char* level; bool rolled; };
+
+void checker_rollout(const GvEngine& e, const GvRequest& r, const Board& board, const CubeInfo& ci,
+                     int level, const std::function<void()>& check_budget, std::ostringstream& s) {
+    std::vector<Board> candidates; possible_boards(board,r.die1,r.die2,candidates);
+    std::vector<Row> rows;
+    if(!candidates.empty()) {
+        const auto has=[](const std::vector<Scored>& v,const Board& b) {
+            return std::any_of(v.begin(),v.end(),[&](const Scored& x) { return x.board==b; }); };
+        const auto s1=score_with(*e.strategy,candidates,board,ci);
+        const auto stage1=keep(s1,0.15,s1.size());
+        MultiPlyStrategy two(e.base,2,MoveFilter{5,0.08f},false,r.threads>1,r.threads);
+        two.set_move_prefilter(std::make_shared<PubEval>());
+        two.set_bearoff_db(&e.db);
+        std::vector<Scored> s2, survivors;
+        const bool staged=stage1.size()>1;
+        if(staged) {
+            std::vector<Board> b1; for(const auto& x:stage1) b1.push_back(x.board);
+            s2=score_with(two,b1,board,ci);
+            survivors=keep(s2,0.08,5);
+            two.clear_cache();
+        } else {
+            survivors=keep(stage1,0.08,5);
+        }
+        check_budget();
+        const auto& pool=staged ? s2 : s1;
+        for(size_t i=0;survivors.size()<2 && i<pool.size();++i)
+            if(!has(survivors,pool[i].board)) survivors.push_back(pool[i]);
+        if(r.has_played) {
+            Board played{}; std::copy(r.played,r.played+26,played.begin());
+            if(std::find(candidates.begin(),candidates.end(),played)==candidates.end())
+                throw std::invalid_argument("played board is not a legal play");
+            if(!has(survivors,played)) {
+                auto it=std::find_if(pool.begin(),pool.end(),[&](const Scored& x) { return x.board==played; });
+                if(it!=pool.end()) survivors.push_back(*it);
+                else survivors.push_back(score_with(staged ? static_cast<const Strategy&>(two) : *e.strategy,
+                                                    {played},board,ci)[0]);
+            }
+        }
+
+        RolloutStrategy rollout(e.base,rollout_config(level,r.threads)); rollout.set_bearoff_db(&e.db);
+        const auto roll=[&](Row& row) {
+            check_budget();
+            const auto cpr=rollout.cubeful_rollout_position(row.board,ci);
+            row.probs=widen(e.db.is_bearoff(row.board) ? e.db.lookup_probs(row.board,true) : cpr.cubeless.mean_probs);
+            row.cl=cpr.cubeless.equity; row.cf=cpr.cubeful_equity; row.se=cpr.cubeful_se;
+            row.level="Rollout"; row.rolled=true;
+        };
+        for(const auto& x:survivors) { rows.push_back({x.board,x.probs,x.cl,0,0,"",false}); roll(rows.back()); }
+        for(const auto& x:s2) if(!has(survivors,x.board)) rows.push_back({x.board,x.probs,x.cl,0,0,"2-ply",false});
+        for(const auto& x:s1) if(!has(survivors,x.board) && !has(s2,x.board))
+            rows.push_back({x.board,x.probs,x.cl,0,0,"1-ply",false});
+
+        // The cubeful wrapper's value for a play that was not rolled out:
+        // cubeful_equity_nply at the rollout's decision ply, from the side
+        // about to roll (`_cubeful_equity`).
+        const int ply=rollout_config(level,1).decision_ply;
+        std::vector<int> rest;
+        for(size_t i=0;i<rows.size();++i) if(!rows[i].rolled) rest.push_back((int)i);
+        parallel((int)rest.size(), r.threads, [&](int k) {
+            auto& row=rows[rest[k]];
+            row.cf=-cubeful_equity_nply(flip(row.board),flip_cube_perspective(ci),*e.strategy,ply,
+                                        MoveFilter{5,0.08f},1);
+        });
+        const auto order=[](const Row& a,const Row& b) {
+            if(a.cf!=b.cf) return a.cf>b.cf;
+            if(a.cl!=b.cl) return a.cl>b.cl;
+            return a.board<b.board;
+        };
+        std::sort(rows.begin(),rows.end(),order);
+        while(!rows.empty() && !rows[0].rolled) { roll(rows[0]); std::sort(rows.begin(),rows.end(),order); }
+    }
+    s << "{\"moves\":[";
+    for(size_t i=0;i<rows.size();++i) { const auto& m=rows[i]; if(i) s << ',';
+        s << "{\"board\":"; array(s,m.board); s << ",\"probs\":"; array(s,m.probs);
+        s << ",\"equity\":" << m.cf << ",\"cubeless_equity\":" << m.cl
+          << ",\"equity_diff\":" << m.cf-rows[0].cf << ",\"eval_level\":\"" << m.level << "\"";
+        if(m.rolled) s << ",\"se\":" << m.se;
+        s << "}";
+    } s << "]}";
+}
+
 // A cube decision at 2T or 3T: the rollout above, and the ND/DT/DP reading of
 // it that bgsage's Python binding does after `cubeful_cube_decision`
 // (`bindings.cpp`, RolloutStrategy.cube_decision). The beaver flag of the
@@ -387,6 +502,8 @@ char* gvengine_analyze(GvEngine* e, int op, const GvRequest* request) {
             case CUBE: cube_nply(*e,r,board,ci,check_budget,s); break;
             case CUBE_2T: cube_rollout(*e,r,board,ci,2,s); break;
             case CUBE_3T: cube_rollout(*e,r,board,ci,3,s); break;
+            case CHECKER_2T: checker_rollout(*e,r,board,ci,2,check_budget,s); break;
+            case CHECKER_3T: checker_rollout(*e,r,board,ci,3,check_budget,s); break;
         }
         check_budget(); auto text=s.str(); char* out=static_cast<char*>(std::malloc(text.size()+1));
         if(!out) throw std::bad_alloc(); std::memcpy(out,text.c_str(),text.size()+1);

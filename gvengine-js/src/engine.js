@@ -11,7 +11,7 @@
 // a time gives that for free.
 
 const OWNERS = { centered: 0, player: 1, opponent: 2 };
-const OP = { checker: 0, cube: 1, checker_trimmed: 2, cube_2t: 3, cube_3t: 4 };
+const OP = { checker: 0, cube: 1, checker_trimmed: 2, cube_2t: 3, cube_3t: 4, checker_2t: 5, checker_3t: 6 };
 const ROLLOUT_LEVELS = { "2T": 2, "3T": 3 };
 const REQUEST_INTS = 65;
 const DIR = "/gvengine";
@@ -86,9 +86,13 @@ export async function create_engine({ factory, manifest, read, module = {} }) {
          * up to five of those at `ply`; each move's `eval_level` says which
          * depth its number is from. `played`, a board after one of the legal
          * plays, is always searched at `ply` -- pass it when grading a play.
+         * `{ level: "2T" }` or "3T" reads the decision as BgBotAnalyzer's
+         * rollout levels do: a few plays rolled out (`eval_level` "Rollout",
+         * with `se`), the rest at 2-ply or 1-ply.
          */
-        checker: (position, { trimmed = false, ...options } = {}) =>
-            analyze(trimmed ? OP.checker_trimmed : OP.checker, position, options),
+        checker: (position, { trimmed = false, level, ...options } = {}) =>
+            analyze(level === "2T" ? OP.checker_2t : level === "3T" ? OP.checker_3t
+                : trimmed ? OP.checker_trimmed : OP.checker, position, options),
         /** The cube decision at `ply`, or rolled out with `{ level: "2T" }` or "3T". */
         cube: (position, { level, ...options } = {}) =>
             level === "2T" ? analyze(OP.cube_2t, position, options)
