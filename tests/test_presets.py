@@ -112,7 +112,10 @@ def check_digest_scope() -> None:
         check("+" in P.PRESETS["deep"].label, "GVAN_NO_SCREEN shows in the label")
     with env(GVAN_ROLLOUT_SELECT="0"):
         ro = {k: p.label for k, p in P.PRESETS.items()}
-    check(all(("+" in v) == k.startswith("world_class") for k, v in ro.items()),
+    rollouts = {k for k, p in P.PRESETS.items()
+                if any((lv or "").startswith("truncated") for lv in (p.second_pass, p.cube_second_pass))}
+    check(rollouts == {"world_class", "deep_plus"}, f"the rollout presets: {sorted(rollouts)}")
+    check(all(("+" in v) == (k in rollouts) for k, v in ro.items()),
           f"GVAN_ROLLOUT_SELECT=0 shows in exactly the rollout presets' labels: {sorted(ro.values())}")
 
 

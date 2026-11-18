@@ -139,7 +139,8 @@ _BUILTIN_SPECS: dict[str, dict] = {
                     "close_threshold": {"checker": 0.08, "cube": 0.12},
                     "error_threshold": {"checker": DEFAULT_ERROR_THRESHOLD, "cube": 0.0},
                     "aliases": ["wc", "worldclass"]},
-    # World Class without its middle tier: the 3-ply screen, and the same 2T
+    # Deep with its errors rolled out -- World Class without its middle tier:
+    # the 3-ply screen, and the same 2T
     # rollout on the same errors (checker plays above 0.02, cubes on any wrong
     # action), with nothing deepened to 4-ply on a near-tie. Defined for the
     # browser, where the 4-ply tier is what does not fit: it was 49% of
@@ -148,11 +149,12 @@ _BUILTIN_SPECS: dict[str, dict] = {
     # is world_class@1's, which three matches could not tell apart from @2's.
     # A method of its own, with a label of its own -- not a cheaper way of
     # getting world_class's numbers, which is what world_class_fast was
-    # retired for claiming to be.
-    "world_class_lite": {"display": "World Class Lite", "revision": 1,
-                         "first_pass": "3ply", "second_pass": "truncated2",
-                         "error_threshold": {"checker": DEFAULT_ERROR_THRESHOLD, "cube": 0.0},
-                         "aliases": ["wcl"]},
+    # retired for claiming to be, and so named after deep rather than after
+    # world_class: a "World Class" name invites exactly that comparison.
+    "deep_plus": {"display": "Deep+", "revision": 1,
+                  "first_pass": "3ply", "second_pass": "truncated2",
+                  "error_threshold": {"checker": DEFAULT_ERROR_THRESHOLD, "cube": 0.0},
+                  "aliases": ["dp"]},
     # TODO Extensive: needs a full-completion `rollout` second pass plus a tiered
     # outplay-vs-error escalation trigger, so it is not yet defined.
 }
@@ -182,6 +184,13 @@ _RETIRED: dict[str, str] = {
         "you intend to trust, or deep for something genuinely cheap."
     ),
     "wcf": "world_class_fast",
+    # Not retired but renamed, after one release (3.6.0): the same definition,
+    # and so the same digest, as deep_plus@1. Not aliased, for the reason above.
+    "world_class_lite": (
+        "renamed deep_plus in 3.6.1 -- the same method under a name that does "
+        "not read as a cheaper World Class. Use deep_plus."
+    ),
+    "wcl": "world_class_lite",
 }
 
 #: The definition digest (`Preset.digest`, first 12 hex) of every revision each
@@ -203,7 +212,7 @@ _REVISIONS: dict[str, dict[int, str]] = {
     "fast": {1: "7030cc90eace", 2: "a44dc6c17c2f"},
     "deep": {1: "f0d71d4caf31", 2: "062a598d4e7f"},
     "world_class": {1: "e5b1989b5c6c", 2: "5b8d38df0b0d"},
-    "world_class_lite": {1: "d82bc491d048"},
+    "deep_plus": {1: "d82bc491d048"},
 }
 
 #: What a custom preset's name may be: it is written into the label, so it

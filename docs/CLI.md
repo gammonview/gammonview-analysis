@@ -219,15 +219,16 @@ presets judge everything at the first pass.
 | `very_quick` (`vq`) | `2ply` | — | — | Very quick |
 | `fast` (`f`) | `2ply` | — | `3ply` | Fast |
 | `deep` (`d`) | `3ply` | — | — | Deep |
-| `world_class_lite` (`wcl`) | `3ply` | — | `truncated2` | — (World Class without its middle tier) |
+| `deep_plus` (`dp`) | `3ply` | — | `truncated2` | — (Deep, with errors rolled out) |
 | `world_class` (`wc`) | `3ply` | `4ply` | `truncated2` | World Class (XG Roller+) |
 
 `fast` is the default.
 
-`world_class_lite` is the same with no middle tier: the 3-ply screen settles every
-decision it does not find an error in, and errors are rolled out exactly as in
-`world_class`. It exists for GammonView's in-browser engine, where the 4-ply tier
-is what does not fit.
+`deep_plus` is `deep` with its errors rolled out -- `world_class` with no middle
+tier: the 3-ply screen settles every decision it does not find an error in, and
+errors are rolled out exactly as in `world_class`. It exists for GammonView's
+in-browser engine, where the 4-ply tier is what does not fit. It was called
+`world_class_lite` in 3.6.0; that name now fails with a message pointing here.
 
 `world_class` screens both kinds at 3-ply and deepens a borderline one to 4-ply:
 a checker play whose top two moves are within 0.08, a cube within 0.12 of its

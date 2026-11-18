@@ -13,6 +13,17 @@ when the repository was opened; they are kept because they record why things
 are the way they are — particularly the breaking changes and the measurements
 behind several design decisions. Dates are the tag dates.
 
+## 3.6.1 — 2026-11-18
+
+**`world_class_lite` is renamed `deep_plus`** *(breaking)*
+
+The same method, displayed as **Deep+**: `deep` with its errors rolled out. A
+"World Class" name invited comparing its results with `world_class`'s, which is
+what the retired `world_class_fast` was dropped for. `--preset world_class_lite`
+(`wcl`) now fails with a message pointing to `deep_plus` (`dp`), and is not
+aliased, since that would mislabel the analysis. The definition is unchanged, so
+`deep_plus@1` has `world_class_lite@1`'s digest.
+
 ## 3.6.0 — 2026-11-18
 
 **A World Class Lite preset** *(added)*
