@@ -13,6 +13,28 @@ when the repository was opened; they are kept because they record why things
 are the way they are — particularly the breaking changes and the measurements
 behind several design decisions. Dates are the tag dates.
 
+## 3.6.0 — 2026-11-18
+
+**A World Class Lite preset** *(added)*
+
+`world_class_lite` (`wcl`) is `world_class` without its middle tier: the 3-ply
+screen settles every decision it finds no error in, and errors are rolled out at
+2T exactly as in `world_class`, with nothing deepened to 4-ply on a near-tie. It
+was defined for GammonView's in-browser engine, where the 4-ply tier is what does
+not fit: that tier was 49% of `world_class`'s checker decisions and most of its
+non-rollout cost. It is a method with its own label, not a cheaper way to get
+`world_class`'s numbers.
+
+**bgsage in the browser** *(added, not published)*
+
+`gvengine-js/` is bgsage compiled to WebAssembly with its networks, in a
+single-threaded and a threaded build, held by its tests to native bgsage's
+numbers. It covers what GammonView runs in the browser: whole decisions at n-ply
+and at 2T and 3T, rollouts of named plays, match analysis's checker screen,
+post-move analytics and the 21-roll luck sweep. It is not on npm; GammonView
+vendors its build. The one patch it makes to bgsage's source, in `build.sh`, is
+published here as MPL-2.0 requires.
+
 ## 3.5.0 — 2026-11-15
 
 **Individual moves can be evaluated from the library** *(added)*
