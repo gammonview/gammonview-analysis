@@ -22,6 +22,19 @@ const fixture = JSON.parse(fs.readFileSync(path.join(here, "fixtures", "parity.j
 const built = fs.existsSync(path.join(dist, "manifest.json"));
 const skip = built ? false : "dist/ not built: run ./build.sh";
 const TOLERANCE = 5e-6;
+// A rollout's cubeless numbers (cubeless equity, probs) get more room, and only
+// they. Inside a trial's truncation tree bgsage picks each roll's play by its
+// cubeful value, counting plays within MOVE_TIE_EPSILON (1e-6) of the best as
+// tied and choosing among those on cubeless equity (pick_best_with_tiebreak).
+// Native and WASM arithmetic differ by ~1e-7, and a play that sits that close
+// to the epsilon's edge is in the tie on one and out on the other: a different
+// play, equal in cubeful value by construction but not in gammon chances.
+// Measured on the 5-away/3-away fixture: one pick of one trial in 360, moving
+// that trial's gammon-win by 1e-3 and the mean by 3e-6 at 2T and 7e-6 at 3T,
+// while every cubeful equity and SE stayed exact. Native x86 and arm64 differ
+// from each other the same way. 5e-5 allows several such flips and is still
+// 20x finer than the 0.1% a probability is shown to.
+const ROLLOUT_CUBELESS_TOLERANCE = 5e-5;
 
 async function engine(file) {
     const manifest = JSON.parse(fs.readFileSync(path.join(dist, "manifest.json")));
@@ -145,7 +158,7 @@ test("threaded build", { skip }, async (t) => {
                 want.forEach((m, k) => {
                     assert.deepEqual(got.moves[k].board, m.board);
                     assert.ok(Math.abs(got.moves[k].equity - m.equity) < TOLERANCE, `position ${i} play ${k}: ${got.moves[k].equity} vs ${m.equity}`);
-                    assert.ok(Math.abs(got.moves[k].cubeless_equity - m.cubeless_equity) < TOLERANCE, `position ${i} play ${k} cubeless`);
+                    assert.ok(Math.abs(got.moves[k].cubeless_equity - m.cubeless_equity) < ROLLOUT_CUBELESS_TOLERANCE, `position ${i} play ${k} cubeless`);
                 });
             });
         });
@@ -162,6 +175,18 @@ test("threaded build", { skip }, async (t) => {
                     assert.ok(Math.abs(g.equity - m.equity) < TOLERANCE, `position ${i} ${m.eval_level}: ${g.equity} vs ${m.equity}`);
                 }
                 assert.equal(got.moves[0].board.join(), want[0].board.join(), `position ${i}: best play`);
+            });
+        });
+    }
+    for (const [level, name] of [["2T", "truncated2"], ["3T", "truncated3"]]) {
+        await t.test(`a played board rolled out at ${level}, as post_move_analytics reads it`, () => {
+            fixture.post_move[name].forEach(({ board, equity, cubeless_equity, probs, se }, i) => {
+                const got = e.post_move(fixture.positions[i], board, { level, threads: 8 });
+                assert.equal(got.eval_level, "Rollout", `position ${i}: level`);
+                assert.ok(Math.abs(got.equity - equity) < TOLERANCE, `position ${i}: ${got.equity} vs ${equity}`);
+                assert.ok(Math.abs(got.cubeless_equity - cubeless_equity) < ROLLOUT_CUBELESS_TOLERANCE, `position ${i}: cubeless`);
+                assert.ok(Math.abs(got.se - se) < TOLERANCE, `position ${i}: se ${got.se} vs ${se}`);
+                probs.forEach((q, k) => assert.ok(Math.abs(got.probs[k] - q) < ROLLOUT_CUBELESS_TOLERANCE, `position ${i}: probs[${k}]`));
             });
         });
     }

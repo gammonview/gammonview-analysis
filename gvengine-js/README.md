@@ -2,9 +2,18 @@
 
 bgsage's C++ compiled to WebAssembly, with the networks and bearoff database of
 the same bgsage release beside it. It gives **native bgsage's numbers**: the
-parity test holds every equity to within 5e-6 of `BgBotAnalyzer`, which is what
-`gvanalysis` runs on the Studio and in the desktop helper. A position read in a
-browser and the same position read anywhere else agree.
+parity test holds every cubeful equity to within 5e-6 of `BgBotAnalyzer`, which
+is what `gvanalysis` runs on the Studio and in the desktop helper. A position
+read in a browser and the same position read anywhere else agree.
+
+A rollout's cubeless numbers (its probabilities and cubeless equity) are held to
+5e-5 instead. Inside each trial bgsage treats plays within 1e-6 of the best
+cubeful value as tied and breaks the tie on cubeless equity, and the ~1e-7 by
+which WASM and native arithmetic differ can put a play on either side of that
+line: a different play of equal cubeful value but different gammon chances.
+Measured, that was one pick in one trial of 360, moving the mean by 7e-6; the
+cubeful equity cannot move, and native x86 and arm64 differ from each other the
+same way.
 
 Not published yet (`"private": true`); gammonview is the first consumer.
 
@@ -14,8 +23,16 @@ Not published yet (`"private": true`); gammonview is the first consumer.
 |---|---|---|
 | `checker(pos, {ply})` | every legal play searched at `ply`, cube-aware | BgBotAnalyzer `Nply` |
 | `checker(pos, {ply, trimmed: true, played})` | every play at 1-ply; up to 16 within 0.20 at 2-ply; up to five of those within 0.08 at `ply`; `played` and the top two always at `ply` | each play's number is exact for its `eval_level` |
+| `checker(pos, {ply, match: true, played})` | match analysis's staged screen, `played` in every stage, groups deepest first | `gvanalysis.checker_eval.checker_play` |
+| `checker(pos, {level: "2T"})`, `"3T"` | the whole decision as the rollout levels read it: a few plays rolled out (`se`), the rest at 2-ply or 1-ply | BgBotAnalyzer `truncated2` / `truncated3` |
 | `cube(pos, {ply})` | n-ply cube decision | BgBotAnalyzer `Nply` |
-| `cube(pos, {level: "2T"})` | 360 trials truncated at 7, 2-ply inside | BgBotAnalyzer `truncated2` |
+| `cube(pos, {level: "2T"})`, `"3T"` | 360 trials truncated at 7, 2-ply (2T) or 3-ply (3T) inside | BgBotAnalyzer `truncated2` / `truncated3` |
+| `rollout(pos, boards, {level})` | up to eight named plays rolled out at 2T or 3T; a bearoff-database board also gets its exact `bearoff` probabilities | `post_move_analytics` at a rollout level — the server's `POST /position/moves` |
+| `post_move(pos, after, {ply})` | one board after a play, at `ply` — for a played board a move list does not hold (an illegal play) | `post_move_analytics` |
+| `post_move(pos, after, {level: "2T"})`, `"3T"` | the same board rolled out, with `se` | `post_move_analytics` at a rollout level |
+| `rolls(pos)` | each of the 21 rolls with its best 1-ply play: luck's sweep, one roll to a thread | `checker()` at 1-ply, first row |
+
+Every row but the post-move rollouts is in the parity suite.
 
 `ply` is 1–4. Each call takes `threads` (default 1) and `budget_ms` (default ten
 minutes). The answer is the engine's JSON, in BgBotAnalyzer's analytics shape,

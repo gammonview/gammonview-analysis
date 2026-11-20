@@ -5,13 +5,14 @@
 
 Twelve positions from one seeded game, a third of them at a match score, each
 read by BgBotAnalyzer at 2ply, 3ply and truncated2 (and a few at truncated3),
-plus single plays rolled out as `POST /position/moves` does -- the analyzer gvanalysis
+plus single plays and single boards rolled out -- the analyzer gvanalysis
 builds, so these are the Studio's and the helper's numbers. Regenerate when
 bgsage.version moves; the test refuses fixtures from another version.
 """
 import importlib.metadata
 import json
 import random
+from dataclasses import astuple
 from pathlib import Path
 
 import bgbot_cpp as cpp
@@ -85,16 +86,21 @@ for level in ("2ply", "3ply"):
         rows.append({"played": played, "moves": [{"board": list(m.board), "equity": m.equity,
                      "cubeless_equity": m.cubeless_equity, "eval_level": m.eval_level} for m in r.moves]})
     out["match"][level] = rows
-# post_move_analytics of a played board, as match analysis sizes an illegal play.
+# post_move_analytics of a played board, as match analysis sizes an illegal play
+# -- at n-ply, and rolled out as a rollout tier does: every position at 2T,
+# the first three at 3T.
 out["post_move"] = {}
-for level in ("2ply", "3ply"):
+for level, n in (("2ply", len(positions)), ("3ply", len(positions)), ("truncated2", len(positions)), ("truncated3", 3)):
     a = BgBotAnalyzer(eval_level=level)
     rows = []
-    for p, plays in zip(positions, out["checker"]["2ply"]):
+    for p, plays in zip(positions[:n], out["checker"]["2ply"][:n]):
         b = plays[-1]["board"]
         r = a.post_move_analytics(b, cube_owner=p["cube_owner"], cube_value=p["cube_value"], away1=p["away1"],
                                   away2=p["away2"], is_crawford=p["is_crawford"], jacoby=p["jacoby"])
-        rows.append({"board": b, "equity": r.cubeful_equity, "cubeless_equity": r.cubeless_equity})
+        row = {"board": b, "equity": r.cubeful_equity, "cubeless_equity": r.cubeless_equity}
+        if level.startswith("truncated"):
+            row |= {"probs": list(astuple(r.probs)), "se": r.cubeful_se}
+        rows.append(row)
     out["post_move"][level] = rows
 a = BgBotAnalyzer(eval_level="truncated3")._analyzer
 out["cube"]["truncated3"] = [{k: r[k] for k in ("equity_nd", "equity_dt", "equity_dp", "should_double", "should_take")}

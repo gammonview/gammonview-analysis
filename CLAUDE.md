@@ -63,9 +63,15 @@ section.
   server's details are in the author's local notes, which are not tracked here.)
 - **`gvengine-js/`** — bgsage compiled to WebAssembly for the browser
   (`@gammonview/engine`, `private` until gammonview ships it). Its whole promise
-  is **native bgsage's numbers**: `test/parity.test.mjs` holds every equity to
-  5e-6 of `BgBotAnalyzer` on fixtures `scripts/fixtures.py` writes, so a browser
-  and the Studio cannot disagree about a position. `bgsage.version` pins the
+  is **native bgsage's numbers**: `test/parity.test.mjs` holds every cubeful
+  equity to 5e-6 of `BgBotAnalyzer` on fixtures `scripts/fixtures.py` writes, so
+  a browser and the Studio cannot disagree about a position. A rollout's
+  cubeless numbers get 5e-5, and that is not slack to widen: bgsage's
+  `pick_best_with_tiebreak` treats plays within `MOVE_TIE_EPSILON` (1e-6) as
+  tied and breaks on cubeless equity, so ~1e-7 of arithmetic noise can flip one
+  in-trial pick to an equal-cubeful play with other gammon chances (traced
+  2026-11-20: one pick in 360 trials, mean moved 7e-6, cubeful exact). Any
+  other drift is a real fault. `bgsage.version` pins the
   release both halves come from — the C++ from that GitHub tag, the networks
   from that wheel — and should move with the `[engine]` floor: rebuild,
   `npm run fixtures`, `npm test`. Needs emscripten to build; the test skips

@@ -24,7 +24,7 @@ to carry what bgsage's analysis produces. This repo reads OGXM; what it writes i
 that extended form. See [The format](#the-format).
 
 It ships as two importable Python packages, plus a JavaScript port of the codec
-for the browser:
+and a WebAssembly build of the engine for the browser:
 
 - **`gvformat`** — the pure-stdlib codec: read/write the `.gvab` binary, `.gva`
   JSON conversion, `.xg`/`.bgf` import, compute-on-read stats, OGID. **Zero
@@ -38,6 +38,9 @@ for the browser:
   flow one way: `gvanalysis` → `gvformat`, never back.
 - **`@gammonview/gvformat`** — the same codec in JavaScript, on npm. What reads
   the analysis in the browser. See [In the browser](#in-the-browser).
+- **`gvengine-js/`** — bgsage compiled to WebAssembly, held by its tests to
+  native bgsage's numbers, so a position read in a browser and on a server
+  agree. Not yet published.
 
 ## Install
 
@@ -141,9 +144,13 @@ than downstream. Python and JavaScript must agree byte-for-byte — the same
 `.gvab` in gives the same `.gva` JSON out — and the two test suites check that
 from either side.
 
-There is no JavaScript port of `gvanalysis`. The engine itself does run in a
-browser: [`gvengine-js/`](gvengine-js/) is bgsage compiled to WebAssembly, held by
-its tests to native bgsage's numbers (not yet published).
+There is no JavaScript port of `gvanalysis`, but the engine itself runs in a
+browser: [`gvengine-js/`](gvengine-js/) is bgsage compiled to WebAssembly, with a
+single-threaded and a threaded build. It covers what match analysis asks of the
+engine — n-ply checker and cube decisions, `checker_eval`'s staged screen, 2T/3T
+rollouts of whole decisions, named plays and single boards, and luck's 21-roll
+sweep — held by parity tests to within 5e-6 of native bgsage's equities. Not yet
+published; its README has the calls and measured costs.
 
 ## Command-line tools
 
@@ -284,8 +291,8 @@ so it is not part of the MIT grant. Fork the code freely; use your own mark.
 
 ### Third-party material
 
-Two pieces of third-party material are incorporated, both permissively licensed.
-Their notices must be preserved — see **[THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md)**,
+Three pieces of third-party material are incorporated. Their notices must be
+preserved — see **[THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md)**,
 which reproduces them in full:
 
 - **HedgeHog** (MIT, © 2026 Eran Lambooij) — OGXM is HedgeHog's format. Most of
@@ -299,3 +306,7 @@ which reproduces them in full:
   `gvformat-js/src/met.js`. It ships with GNU Backgammon but is *not* under its
   GPL; its own terms require only that the notice be preserved, and it is
   reproduced at the top of both files.
+- **bgsage** (MPL-2.0, © 2026 Mark Higgins) — compiled into the browser engine
+  by `gvengine-js/build.sh`, which also copies its networks and bearoff database
+  into `dist/`. `gvengine-js/src/entry.cpp` is a modified bgsage file and stays
+  MPL-2.0. None of the build output is committed or in the sdist.
