@@ -55,6 +55,7 @@ ENGINE_BACKED = frozenset({
     "test_analyze_position.py",
     "test_count_illegal.py",
     "test_cube_tiers.py",
+    "test_dicemap.py",
     "test_docs_presets.py",
     "test_gvab_writer.py",
     "test_illegal_play_steps.py",

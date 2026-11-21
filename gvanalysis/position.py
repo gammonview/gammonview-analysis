@@ -7,6 +7,7 @@ Usage:
     uv run gvan-position "XGID=-b----E-C---eE---c-e----B-:0:0:1:31:0:0:0:0"
     uv run gvan-position "11ccccchhhjjjjj:66666888dddddoo:N0N:13:B:R:0:0:0:0"
     uv run gvan-position "<id>" --level 3ply
+    uv run gvan-position "<id>" --dice [--play "13/7 8/7"] [--after-take]
 
 Which format was given is detected from the string itself (an explicit
 ``XGID=``/``OGID=`` label wins); see ``gvformat.ogid.looks_like_ogid``.
@@ -494,8 +495,8 @@ def main() -> None:
         "position_id",
         help="XGID or OGID string (format detected; XGID=/OGID= prefix optional)")
     parser.add_argument(
-        "--level", default="3ply", choices=EVAL_LEVELS,
-        help="Eval level (default: 3ply)")
+        "--level", default=None, choices=EVAL_LEVELS,
+        help="Eval level (default: 3ply; 2ply with --dice)")
     parser.add_argument(
         "--jacoby", action=argparse.BooleanOptionalAction, default=None,
         help="Money games: analyse with or without the Jacoby rule, gammons "
@@ -508,10 +509,26 @@ def main() -> None:
              "-- an XGID's rules field -- and allowed for an OGID. Ignored at a "
              "match score")
     parser.add_argument(
+        "--dice", action="store_true",
+        help="Print the dice map instead (gvanalysis.dicemap): at a cube "
+             "decision the equity after each of the 36 rolls, at a checker play "
+             "the opponent's replies to a play. n-ply levels only")
+    parser.add_argument(
+        "--play", default=None,
+        help="With --dice at a checker play: the play whose replies to map, as "
+             "the analysis names it (default: the best play)")
+    parser.add_argument(
+        "--after-take", action="store_true",
+        help="With --dice at a cube decision: the rolls after a double and a take")
+    parser.add_argument(
         "--no-progress", action="store_true",
         help="Suppress the rollout progress bar (it is stderr-only and already "
              "a no-op when stderr is not a TTY)")
     args = parser.parse_args()
+    if args.level is None:
+        args.level = "2ply" if args.dice else "3ply"
+    if (args.play or args.after_take) and not args.dice:
+        parser.error("--play and --after-take go with --dice")
 
     fmt = "OGID" if looks_like_ogid(args.position_id) else "XGID"
     state = parse_position_id(args.position_id)
@@ -524,6 +541,19 @@ def main() -> None:
                if state.away1 == 0 else f"match {state.away1}-away vs {state.away2}-away")
     print(f"Position ({fmt}): cube={state.cube_value} ({state.cube_owner})  {context}"
           + ("  [Crawford]" if state.is_crawford else ""))
+
+    if args.dice:
+        from .dicemap import DICE_LEVELS, DiceMapError, dice_distribution, print_dice_map
+        if args.level not in DICE_LEVELS:
+            parser.error(f"--dice reads at {', '.join(DICE_LEVELS)}; rolling out each roll is not supported")
+        try:
+            result = dice_distribution(args.position_id, level=args.level, play=args.play,
+                                       doubled=args.after_take, jacoby=jacoby, beaver=beaver)
+        except DiceMapError as e:
+            parser.error(str(e))
+        print_dice_map(result)
+        print(f"\nAnalysis time: {time.perf_counter() - t0:.2f}s")
+        return
 
     # A rollout at this CLI is a deliberate minutes-long run, and until now it
     # printed nothing at all until it finished. The bar lives on stderr, so

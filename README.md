@@ -160,7 +160,7 @@ Entry points are defined in `pyproject.toml` and run with `uv run`:
 |---|---|
 | `gvan-match` | Analyze a match (`.xg`, `.bgf`, `.mat`, `.gva`/`.ogxm`, `.gvab`), compute per-move PR → `.gva`/`.gvab` |
 | `gvan-batch` | The same over many files or a directory, one output each |
-| `gvan-position` | Analyze a single position from an **XGID or OGID** |
+| `gvan-position` | Analyze a single position from an **XGID or OGID**; `--dice` prints its dice map |
 | `xg2gva` | Convert an eXtreme Gammon `.xg` file to `.gva` JSON (no engine) |
 | `bgf2gva` | Convert a BGBlitz `.bgf` file to `.gva` JSON (no engine) |
 
@@ -171,7 +171,17 @@ uv run gvan-match match.mat --link                        # print a shareable UR
 uv run gvan-batch matches/ --preset fast                  # a dir -> its match files
 uv run gvan-position "XGID=-b----E-C---eE---c-e----B-:0:-1:1:31:0:0:0:0"
 uv run gvan-position "11ccccchhhjjjjj:66666888dddddoo:N0N:13:B:R:0:0:0:0"
+uv run gvan-position "<id>" --dice                        # the equity after each of the 36 rolls
+uv run gvan-position "<id>" --dice --play "13/7 8/7"      # a checker play: the replies to that play
 ```
+
+`--dice` is XG's Dice Distribution, as `gvanalysis.dicemap.dice_distribution`
+returns it: at a cube decision the side on roll's equity after each roll's best
+play (`--after-take` for the rolls after a double and a take, in the cube
+before the double as D/T is), with each die's average; at a checker play the
+opponent's replies to one play, in your equity, each marked with the cube
+decision it leaves you (D/T, D/P, TG). Read at 2-ply by default, any n-ply
+level with `--level`.
 
 An input keeps any analysis it already carries — ours is appended as a new
 block rather than replacing it. (`xg2gva`/`bgf2gva` exist for conversion on its
