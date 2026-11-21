@@ -16,6 +16,9 @@ not the engine's numbers, which other tests own:
      the map does not consult.
   4. **The cube marks appear only where the cube is ours to turn.**
   5. **A bad request is a ``DiceMapError``**, an unknown level a ``ValueError``.
+  6. **Market losers are the reply map one roll out.** A roll's count is the
+     D/P and TG marks of the reply map to its play, one ply shallower; and
+     there are none to count where the cube is not ours to turn.
 
 Requires the bgsage engine (the ``[engine]`` extra).
 
@@ -31,7 +34,7 @@ from pathlib import Path
 _REPO_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(_REPO_ROOT))
 
-from gvanalysis.dicemap import DiceMapError, dice_distribution
+from gvanalysis.dicemap import DiceMapError, dice_distribution, market_losers
 from gvanalysis.position import analyze_position
 
 _checks = 0
@@ -116,6 +119,24 @@ def main() -> int:
     raises(lambda: dice_distribution("3cccccehhhjjjjj:1666677888dddlo:W1N::W:C:0:0:0:0", doubled=True),
            DiceMapError, "after a take, with their cube")
     raises(lambda: dice_distribution(CUBE_MONEY, level="truncated2"), ValueError, "a rollout level")
+
+    print("6. market losers are the reply map one roll out")
+    market = market_losers(CUBE_MONEY)
+    check(market is not None and len(market["rolls"]) == 21, "21 of our rolls")
+    check(market["pass"] == sum(r["weight"] * r["pass"] for r in market["rolls"]), "the total weights each roll")
+    check(all(0 <= r["pass"] + r["too_good"] <= 36 for r in market["rolls"]), "each roll out of 36 replies")
+    roll = max(market["rolls"], key=lambda r: r["pass"] + r["too_good"])
+    check(roll["pass"] + roll["too_good"] > 0, "this position has market losers")
+    a, b = roll["dice"]
+    with_dice = CUBE_MONEY.replace("N0N::W:C", f"N0N:{a}{b}:W:R")
+    play = dice_distribution(with_dice)["play"]
+    replies = dice_distribution(with_dice, level="1ply", play=play)
+    lost = {k: sum(r["weight"] for r in replies["rolls"] if r.get("cube") == k) for k in ("double_pass", "too_good")}
+    check((roll["pass"], roll["too_good"]) == (lost["double_pass"], lost["too_good"]),
+          f"{a}-{b}: {roll['pass']}+{roll['too_good']} as its 1-ply reply map marks them")
+    check(market_losers(CHECKER_MATCH) is None, "none at a checker play")
+    check(market_losers("3cccccehhhjjjjj:1666677888dddlo:W1N::W:C:0:0:0:0") is None, "none with their cube")
+    raises(lambda: market_losers(CUBE_MONEY, level="1ply"), ValueError, "no reply level below 1-ply")
 
     print(f"\n{_checks - len(_failures)}/{_checks} checks passed.")
     if _failures:

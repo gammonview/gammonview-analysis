@@ -34,8 +34,8 @@
 // `test/dicemap.test.mjs` holds this one to it roll for roll.
 //
 // Pure: the engine (`engine.js`) is passed in, and nothing here knows where it
-// runs. GammonView vendors this file beside the engine
-// (`scripts/vendor-gvengine.mjs`) and runs it in its analysis worker.
+// runs. GammonView imports it from this package and runs it in its analysis
+// worker.
 
 import { parseOgid } from "@gammonview/gvformat/ogid.js";
 import { mwcAnchors } from "@gammonview/gvformat/met.js";
@@ -207,6 +207,57 @@ export function dice_map(engine, position_id, {
         won: false,
         rolls,
     };
+}
+
+/**
+ * The market losers of a cube decision: the sequences -- our roll, then their
+ * reply -- after which we would double and they would pass. Not doubling now
+ * loses our market on exactly these, which is the count a player weighs
+ * against the cost of doubling too early.
+ *
+ * Our roll is played at `ply`, as the map plays it, so the two agree on what
+ * each roll does; their reply and our cube after it are read one ply
+ * shallower. That is XG's "1st roll 2-ply, 2nd roll 1-ply" again, and what
+ * keeps 441 sequences to well under a second at 2-ply. Read deeper the total
+ * barely moves -- 43 to 45 of 1296 in a money position, 1128 to 1138 at a
+ * match score -- but the split between a pass and too good does, since
+ * those sequences sit on the pass line.
+ *
+ * Too good counts: they would pass, and we have lost our market as surely,
+ * only to a position better played on. Their cube is not consulted after our
+ * roll, as in any count of market losers.
+ *
+ * @param {object} engine  a `gvengine.js` engine
+ * @param {string} position_id  the cube decision, as `dice_map` takes it
+ * @param {object} [options]  `ply`, `jacoby`, `beaver`, `threads`, as for `dice_map`
+ * @returns {{ply: number, pass: number, too_good: number,
+ *   rolls: {dice: number[], weight: number, pass: number, too_good: number}[]}|null}
+ *   `pass` and `too_good` out of 1296 sequences; each roll's out of their 36
+ *   replies. Null where there is no market to lose: a checker play, the cube
+ *   theirs, the Crawford game, a double already offered.
+ */
+export function market_losers(engine, position_id, { ply = 2, jacoby = true, beaver = true, threads = 1 } = {}) {
+    if (![2, 3].includes(ply)) throw new Error(`market losers are read at 2-ply or 3-ply, not ${ply}`);
+    if (!can_double(position_id)) return null;
+    const state = parseOgid(position_id);
+    const money = !state.away1 && !state.away2;
+    const ours = engine_position(state, { jacoby: jacoby && money, beaver: beaver && money });
+    const rolls = sweep(engine, ours, ply, threads).map(({ dice, weight, board }) => {
+        const out = { dice, weight, pass: 0, too_good: 0 };
+        // Our last checker off: the game is over, with no market in it.
+        if (borne_off(board)) return out;
+        const theirs = other_side(ours, board);
+        for (const reply of sweep(engine, theirs, ply - 1, threads)) {
+            // Their last checker off: a game lost, not a market.
+            if (borne_off(reply.board)) continue;
+            const cube = our_cube(engine, theirs, reply.board, ply - 1, threads);
+            if (cube === "double_pass") out.pass += reply.weight;
+            else if (cube === "too_good") out.too_good += reply.weight;
+        }
+        return out;
+    });
+    const total = (key) => rolls.reduce((t, r) => t + r.weight * r[key], 0);
+    return { ply, pass: total("pass"), too_good: total("too_good"), rolls };
 }
 
 /**

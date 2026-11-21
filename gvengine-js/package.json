@@ -1,6 +1,6 @@
 {
   "name": "@gammonview/engine",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "bgsage compiled to WebAssembly, with its networks, giving native bgsage's numbers in a browser; and the dice map over it.",
   "type": "module",
   "license": "MPL-2.0 AND MIT",

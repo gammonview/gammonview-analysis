@@ -512,7 +512,8 @@ def main() -> None:
         "--dice", action="store_true",
         help="Print the dice map instead (gvanalysis.dicemap): at a cube "
              "decision the equity after each of the 36 rolls, at a checker play "
-             "the opponent's replies to a play. n-ply levels only")
+             "the opponent's replies to a play, and at a cube decision the market "
+             "losers too. n-ply levels only")
     parser.add_argument(
         "--play", default=None,
         help="With --dice at a checker play: the play whose replies to map, as "
@@ -543,7 +544,8 @@ def main() -> None:
           + ("  [Crawford]" if state.is_crawford else ""))
 
     if args.dice:
-        from .dicemap import DICE_LEVELS, DiceMapError, dice_distribution, print_dice_map
+        from .dicemap import (DICE_LEVELS, MARKET_LEVELS, DiceMapError, dice_distribution,
+                               market_losers, print_dice_map, print_market_losers)
         if args.level not in DICE_LEVELS:
             parser.error(f"--dice reads at {', '.join(DICE_LEVELS)}; rolling out each roll is not supported")
         try:
@@ -552,6 +554,11 @@ def main() -> None:
         except DiceMapError as e:
             parser.error(str(e))
         print_dice_map(result)
+        # A cube map carries its market losers, where there is a market to lose.
+        if result["roller"] == "mover" and not args.after_take and args.level in MARKET_LEVELS:
+            market = market_losers(args.position_id, level=args.level, jacoby=jacoby, beaver=beaver)
+            if market:
+                print_market_losers(market)
         print(f"\nAnalysis time: {time.perf_counter() - t0:.2f}s")
         return
 

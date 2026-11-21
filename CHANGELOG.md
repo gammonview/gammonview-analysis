@@ -13,6 +13,21 @@ when the repository was opened; they are kept because they record why things
 are the way they are — particularly the breaking changes and the measurements
 behind several design decisions. Dates are the tag dates.
 
+## Unreleased
+
+**Market losers** *(added)*
+
+`gvanalysis.dicemap.market_losers` counts the sequences, our roll and then
+their reply, after which a cube decision's side on roll would double and be
+passed: the market lost by not doubling now. It gives the total out of 1296
+and each roll's count out of its 36 replies, with too good counted separately.
+Our roll is played at the map's level and the reply one ply below, as XG's
+"1st roll 2-ply, 2nd roll 1-ply". It is None where there is no market to lose:
+a checker play, the opponent's cube, the Crawford game. `gvan-position --dice`
+prints it under a cube map. About 10s natively at 2-ply. `@gammonview/engine`
+1.1.0 has the same count in the browser, in under a second, and is held to
+these numbers roll for roll.
+
 ## 3.7.0 — 2026-11-21
 
 **The dice distribution of a position** *(added)*

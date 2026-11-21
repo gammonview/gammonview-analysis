@@ -8,14 +8,15 @@ test are `dice_distribution`'s, which is the map's other half. Each position is
 mapped at 2-ply and 3-ply -- a cube decision as it stands and, where the side
 on roll may double, after a double and a take; a checker play's replies to its
 best play, with `after` the OGID that play leaves, which is what `dice_map`
-takes. Regenerate when bgsage.version moves; the test refuses fixtures from
+takes. A cube decision's 2-ply map carries its `market_losers` too, null where
+there is no market to lose. Regenerate when bgsage.version moves; the test refuses fixtures from
 another version.
 """
 import importlib.metadata
 import json
 from pathlib import Path
 
-from gvanalysis.dicemap import can_double, dice_distribution
+from gvanalysis.dicemap import can_double, dice_distribution, market_losers
 from gvanalysis.position import parse_position_id
 from gvanalysis.positionmove import _key, candidate_boards
 from gvformat.ogid import board_to_ogid, parse_ogid
@@ -55,7 +56,12 @@ for ogid in POSITIONS:
             continue
         for doubled in (False, True) if can_double(state) else (False,):
             got = dice_distribution(ogid, level=level, doubled=doubled)
-            maps.append({"ogid": ogid, "ply": ply, "after": None, **{k: got[k] for k in KEEP}})
+            entry = {"ogid": ogid, "ply": ply, "after": None, **{k: got[k] for k in KEEP}}
+            # Market losers at 2-ply only: at 3-ply each is a minute natively.
+            if ply == 2 and not doubled:
+                market = market_losers(ogid, level=level)
+                entry["market"] = market and {k: market[k] for k in ("pass", "too_good", "rolls")}
+            maps.append(entry)
 
 out = Path(__file__).resolve().parent.parent / "test" / "fixtures" / "dicemap.json"
 out.write_text(json.dumps({"bgsage": importlib.metadata.version("bgsage"), "maps": maps},

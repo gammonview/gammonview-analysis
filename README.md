@@ -180,8 +180,10 @@ returns it: at a cube decision the side on roll's equity after each roll's best
 play (`--after-take` for the rolls after a double and a take, in the cube
 before the double as D/T is), with each die's average; at a checker play the
 opponent's replies to one play, in your equity, each marked with the cube
-decision it leaves you (D/T, D/P, TG). Read at 2-ply by default, any n-ply
-level with `--level`.
+decision it leaves you (D/T, D/P, TG). Under a cube map come its market
+losers (`market_losers`): the sequences of our roll and their reply after which
+we would double and they would pass. Read at 2-ply by default, any n-ply level
+with `--level`.
 
 An input keeps any analysis it already carries — ours is appended as a new
 block rather than replacing it. (`xg2gva`/`bgf2gva` exist for conversion on its

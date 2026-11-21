@@ -87,11 +87,18 @@ and a take with `doubled`), or a checker play's replies to the play leaving
 imports `@gammonview/gvformat` for the OGID and the match equity table, so a
 page using it needs that package too (it is a peer dependency here).
 
+`market_losers(engine, ogid, {ply})` counts a cube decision's market losers:
+the sequences of our roll and their reply, out of 1296, after which we would
+double and they would pass, with each roll's count out of its 36 replies. Our
+roll is played at `ply`, their reply and our cube one ply below. Under a second
+at 2-ply on one thread; at 3-ply, 4–13 seconds.
+
 `test/dicemap.test.mjs` holds it to `dice_distribution`'s maps
 (`npm run fixtures:dicemap`, which needs the repo's own environment rather than
 bare bgsage): exactly at 2-ply, and at 3-ply except where the trimmed search's
 cut to five plays drops the best play, which the test allows once a map and
-only in the roller's disfavour.
+only in the roller's disfavour. Market losers are held to `market_losers`'
+counts exactly, at 2-ply.
 
 ## Two builds
 

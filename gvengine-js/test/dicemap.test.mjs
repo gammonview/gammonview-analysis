@@ -21,7 +21,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { create_engine } from "../src/engine.js";
-import { dice_map, dice_grid, die_averages } from "../src/dicemap.js";
+import { dice_map, dice_grid, die_averages, market_losers } from "../src/dicemap.js";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const dist = path.join(here, "..", "dist");
@@ -73,6 +73,29 @@ test("dice_map draws gvanalysis's maps", { skip }, async (t) => {
                     assert.ok(Math.abs(x - want.die_averages[j]) < (missed ? 0.02 : TIE), `die ${j + 1}`));
             });
         }
+    } finally {
+        e.destroy();
+    }
+});
+
+// Market losers read their replies at 1-ply, where the trimmed search is the
+// full one, so the counts agree exactly, roll by roll.
+test("market_losers counts gvanalysis's market losers", { skip }, async (t) => {
+    const e = await engine();
+    try {
+        for (const want of fixture.maps.filter((m) => "market" in m)) {
+            await t.test(want.ogid, () => {
+                const got = market_losers(e, want.ogid, { ply: want.ply });
+                if (want.market === null) return assert.equal(got, null);
+                assert.equal(got.pass, want.market.pass);
+                assert.equal(got.too_good, want.market.too_good);
+                assert.deepEqual(got.rolls, want.market.rolls);
+            });
+        }
+        await t.test("none at a checker play", () => {
+            const play = fixture.maps.find((m) => m.after);
+            assert.equal(market_losers(e, play.ogid), null);
+        });
     } finally {
         e.destroy();
     }

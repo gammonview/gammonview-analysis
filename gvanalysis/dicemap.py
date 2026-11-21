@@ -34,6 +34,12 @@ where the trimmed search's cut to five plays drops the best one.
 
 Cost is 21 checker searches, and at a checker play 21 cube decisions more: on
 an M-series Mac about 0.3s at 2-ply and 3s at 3-ply.
+
+``market_losers`` takes a cube map one roll further: for each of our rolls,
+their 21 replies and our cube after each, counting the sequences where we
+would double and they would pass. That is 441 replies and cube decisions, read
+a ply below the map: about 10s at 2-ply, nearly all of it the 1-ply cube
+decisions.
 """
 
 from __future__ import annotations
@@ -150,6 +156,21 @@ def _our_cube(analyzer, ours: dict) -> str | None:
     return None if action.should_take else "too_good"
 
 
+def _our_side(state: PositionState, jacoby: bool | None, beaver: bool | None) -> dict:
+    """The side on roll's board, cube and score, with the money rules read from
+    the id when None, as ``analyze_position`` reads them."""
+    money = not state.away1 and not state.away2
+    if jacoby is None:
+        jacoby = state.jacoby if state.jacoby is not None else True
+    if beaver is None:
+        beaver = state.beaver if state.beaver is not None else True
+    return {
+        "board": list(state.board), "cube_value": state.cube_value, "cube_owner": state.cube_owner,
+        "away1": state.away1, "away2": state.away2, "is_crawford": state.is_crawford,
+        "jacoby": bool(jacoby) and money, "beaver": bool(beaver) and money,
+    }
+
+
 def die_averages(rolls: list[dict]) -> list[float]:
     """Each die's average over the 6x6 grid: the mean of the six cells in its
     column, so of the 11 rolls showing that number with the double counted
@@ -210,16 +231,7 @@ def dice_distribution(
     if analyzer is None:
         from bgsage import BgBotAnalyzer
         analyzer = BgBotAnalyzer(eval_level=level, cubeful=True)
-    money = not state.away1 and not state.away2
-    if jacoby is None:
-        jacoby = state.jacoby if state.jacoby is not None else True
-    if beaver is None:
-        beaver = state.beaver if state.beaver is not None else True
-    ours = {
-        "board": list(state.board), "cube_value": state.cube_value, "cube_owner": state.cube_owner,
-        "away1": state.away1, "away2": state.away2, "is_crawford": state.is_crawford,
-        "jacoby": bool(jacoby) and money, "beaver": bool(beaver) and money,
-    }
+    ours = _our_side(state, jacoby, beaver)
 
     started = time.perf_counter()
     result = {
@@ -277,6 +289,94 @@ def dice_distribution(
     )
     result["elapsed"] = round(time.perf_counter() - started, 3)
     return result
+
+
+#: The levels market losers can be counted at: the map's, with one ply below
+#: it for the reply and the cube after it.
+MARKET_LEVELS = ("2ply", "3ply", "4ply")
+
+
+def market_losers(
+    position_id: str,
+    *,
+    level: str = "2ply",
+    analyzer=None,
+    reply_analyzer=None,
+    jacoby: bool | None = None,
+    beaver: bool | None = None,
+) -> dict | None:
+    """The market losers of a cube decision: the sequences -- our roll, then
+    their reply -- after which we would double and they would pass. Not
+    doubling now loses our market on exactly these.
+
+    Our roll is played at ``level``, as ``dice_distribution`` plays it; their
+    reply and our cube after it one ply shallower, XG's "1st roll 2-ply, 2nd
+    roll 1-ply". Too good counts, separately: they would pass, and the market
+    is as lost. Their cube is not consulted after our roll, as in any count of
+    market losers.
+
+    ``analyzer`` is a ``BgBotAnalyzer`` at ``level`` and ``reply_analyzer``
+    one a ply below it, each built when None.
+
+    Returns ``{"position_id", "eval_level", "pass", "too_good", "rolls",
+    "elapsed"}``, ``pass`` and ``too_good`` out of 1296 sequences, and each of
+    the 21 ``rolls`` ``{"dice", "weight", "pass", "too_good"}`` out of its 36
+    replies. None where there is no market to lose: a checker play, the cube
+    theirs, the Crawford game. ``ValueError`` for another level.
+    """
+    import time
+
+    if level not in MARKET_LEVELS:
+        raise ValueError(f"level must be one of {list(MARKET_LEVELS)}, got {level!r}")
+    state = parse_position_id(position_id)
+    if not can_double(state):
+        return None
+    reply_level = f"{int(level[0]) - 1}ply"
+    if analyzer is None or reply_analyzer is None:
+        from bgsage import BgBotAnalyzer
+        analyzer = analyzer or BgBotAnalyzer(eval_level=level, cubeful=True)
+        reply_analyzer = reply_analyzer or BgBotAnalyzer(eval_level=reply_level, cubeful=True)
+
+    started = time.perf_counter()
+    ours = _our_side(state, jacoby, beaver)
+    rolls = []
+    for r in _sweep(analyzer, ours):
+        row = {"dice": r["dice"], "weight": r["weight"], "pass": 0, "too_good": 0}
+        rolls.append(row)
+        # Our last checker off: the game is over, with no market in it.
+        if _borne_off(r["board"]):
+            continue
+        theirs = _other_side(ours, r["board"])
+        for reply in _sweep(reply_analyzer, theirs):
+            # Their last checker off: a game lost, not a market.
+            if _borne_off(reply["board"]):
+                continue
+            cube = _our_cube(reply_analyzer, {**ours, "board": flip_board(reply["board"])})
+            if cube == "double_pass":
+                row["pass"] += reply["weight"]
+            elif cube == "too_good":
+                row["too_good"] += reply["weight"]
+    return {
+        "position_id": position_id.strip(),
+        "eval_level": level,
+        "pass": sum(r["weight"] * r["pass"] for r in rolls),
+        "too_good": sum(r["weight"] * r["too_good"] for r in rolls),
+        "rolls": rolls,
+        "elapsed": round(time.perf_counter() - started, 3),
+    }
+
+
+def print_market_losers(result: dict) -> None:
+    """The count, and the rolls that lose the market on some reply."""
+    lost = result["pass"] + result["too_good"]
+    line = f"  Market losers: {lost} of 1296 sequences ({lost / 12.96:.1f}%)"
+    if result["too_good"]:
+        line += f", {result['too_good']} of them too good"
+    print(line + ".")
+    for r in result["rolls"]:
+        n = r["pass"] + r["too_good"]
+        if n:
+            print(f"    {r['dice'][0]}-{r['dice'][1]}: {n} of 36 replies")
 
 
 _CUBE_TAG = {"double_take": "D/T", "double_pass": "D/P", "too_good": "TG"}
