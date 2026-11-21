@@ -13,6 +13,31 @@ when the repository was opened; they are kept because they record why things
 are the way they are — particularly the breaking changes and the measurements
 behind several design decisions. Dates are the tag dates.
 
+## 3.6.2 — 2026-11-21
+
+**An illegal play is flagged wherever it lands** *(fixed)*
+
+Analysis noticed an illegal play only on a decision with a real choice of
+moves, by failing to find the played board among the engine's. A forced move
+scored its one legal play as the play made, and a position where every play
+scores the same listed the moves and stopped, so an illegal play on either went
+through as an ordinary one. A `.mat` that recorded a 2-1 as `10/6` in a decided
+bear-off came out unflagged while XG marked it illegal. Legality is now checked
+against the legal moves on every checker decision. As before, an illegal play
+stays out of PR unless `--count-illegal` is given. Files already analysed keep
+their old flags: re-analyse to repair them.
+
+**Every double that was made, and every take, counts toward PR** *(fixed)*
+
+XG's definition of a decision: "a double that results in a double, and a take,
+are never obvious." A correct double in an optional-double position (error under
+0.001) went uncounted, and so did a take whose take and pass equities were
+within 0.001: 107 of 1,989 doubles and 3 of 1,170 takes across 522 XG files.
+Counting them adds a decision with no error, so the doubler's PR falls slightly.
+This applies to our own analysis and to the XG and OpenGammon readers in both
+codecs. BGF files keep BGBlitz's own recorded counts. Files already written keep
+their stored flags.
+
 ## 3.6.1 — 2026-11-18
 
 **`world_class_lite` is renamed `deep_plus`** *(breaking)*
