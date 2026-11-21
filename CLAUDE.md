@@ -61,8 +61,23 @@ section.
   `publishConfig.registry`, and GammonView must not carry a scoped `.npmrc`
   line — either one silently routes the scope away from npmjs. (The retired
   server's details are in the author's local notes, which are not tracked here.)
-- **`gvengine-js/`** — bgsage compiled to WebAssembly for the browser
-  (`@gammonview/engine`, `private` until gammonview ships it). Its whole promise
+- **`gvengine-js/`** — bgsage compiled to WebAssembly for the browser, with
+  the dice map over it (`src/dicemap.js`, the browser half of
+  `gvanalysis.dicemap`). Published as **`@gammonview/engine`** from this
+  directory, like gvformat-js, and GammonView imports it:
+
+  ```bash
+  cd gvengine-js && npm publish     # prepublishOnly checks dist/, then runs the suite
+  ```
+
+  Unlike gvformat-js, the tarball holds a **build**: `dist/` is gitignored and
+  made by `./build.sh` (emscripten), so `scripts/prepublish.mjs` refuses a
+  missing build, one from another bgsage than `bgsage.version`, or one older
+  than `src/entry.cpp`. Its version line is its own (1.0.0 first), as
+  gvformat-js's is; the tarball carries `src/entry.cpp` and `build.sh` because
+  the build is MPL-2.0 and its source has to travel with it. It needs
+  `@gammonview/gvformat` as a peer (the dice map reads OGIDs and the MET).
+  Its whole promise
   is **native bgsage's numbers**: `test/parity.test.mjs` holds every cubeful
   equity to 5e-6 of `BgBotAnalyzer` on fixtures `scripts/fixtures.py` writes, so
   a browser and the Studio cannot disagree about a position. A rollout's

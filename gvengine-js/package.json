@@ -1,22 +1,43 @@
 {
   "name": "@gammonview/engine",
-  "version": "0.1.0",
-  "private": true,
-  "description": "bgsage compiled to WebAssembly, with its networks, giving native bgsage's numbers in a browser.",
+  "version": "1.0.0",
+  "description": "bgsage compiled to WebAssembly, with its networks, giving native bgsage's numbers in a browser; and the dice map over it.",
   "type": "module",
   "license": "MPL-2.0 AND MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/gammonview/gammonview-analysis.git",
+    "directory": "gvengine-js"
+  },
+  "homepage": "https://github.com/gammonview/gammonview-analysis/tree/main/gvengine-js",
+  "bugs": {
+    "url": "https://github.com/gammonview/gammonview-analysis/issues"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
   "exports": {
     ".": "./src/engine.js",
-    "./dicemap.js": "./src/dicemap.js"
+    "./dicemap.js": "./src/dicemap.js",
+    "./dist/*": "./dist/*"
   },
+  "files": [
+    "src",
+    "dist",
+    "build.sh",
+    "bgsage.version",
+    "LICENSE",
+    "THIRD-PARTY-NOTICES.md"
+  ],
   "scripts": {
     "build": "./build.sh",
     "fixtures": "uv run --no-project --with \"bgsage==$(cat bgsage.version)\" python -I scripts/fixtures.py",
+    "fixtures:dicemap": "cd .. && uv run python gvengine-js/scripts/dicemap_fixtures.py",
     "test": "node --test --test-timeout=600000 test/",
-    "fixtures:dicemap": "cd .. && uv run python gvengine-js/scripts/dicemap_fixtures.py"
+    "prepublishOnly": "node scripts/prepublish.mjs && npm test"
   },
   "peerDependencies": {
-    "@gammonview/gvformat": ">=3.1.2"
+    "@gammonview/gvformat": ">=3.0.0"
   },
   "devDependencies": {
     "@gammonview/gvformat": "file:../gvformat-js"

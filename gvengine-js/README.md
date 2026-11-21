@@ -15,7 +15,25 @@ Measured, that was one pick in one trial of 360, moving the mean by 7e-6; the
 cubeful equity cannot move, and native x86 and arm64 differ from each other the
 same way.
 
-Not published yet (`"private": true`); gammonview is the first consumer.
+## Install
+
+```bash
+npm install @gammonview/engine @gammonview/gvformat
+```
+
+`@gammonview/gvformat` is a peer dependency: the dice map reads OGIDs and the
+match equity table through it. The engine itself needs nothing.
+
+The package holds the JavaScript (`src/engine.js`, `src/dicemap.js`) and the
+build it drives (`dist/`): two emscripten modules, the single-threaded one and
+the threaded one, the networks and the bearoff database, about 14 MB. A page
+serves `dist/` itself — `create_engine` is handed a `read(name)` that fetches
+from wherever it put them — so a site copies them out of `node_modules` into
+its static files at build time. GammonView renames each by a content hash on
+the way, so a new release is new names for every cache.
+
+`src/entry.cpp` and `build.sh` are in the package too: the build is MPL-2.0,
+and that is its source (with bgsage at the tag `bgsage.version` names).
 
 ## What it does
 
