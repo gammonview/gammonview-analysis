@@ -26,10 +26,11 @@ so the weighted average is the decision's own equity one ply deeper: a 2-ply
 map averages, to within a few hundredths, the 3-ply read. The opponent's cube
 is not consulted before a reply: it is the rolls, as if they roll.
 
-GammonView's position analyser draws the same map in the browser
-(``gva/dicemap.js``), on the WASM engine's trimmed search. The two agree roll
-for roll except where that search's cuts miss a play the full search finds
-best, which its own tuning puts at a tie (``tests/test_dicemap.py``).
+The same map in a browser is ``gvengine-js/src/dicemap.js``, on the WASM
+engine's trimmed search, and GammonView's position analyser draws it from
+there. ``gvengine-js/test/dicemap.test.mjs`` holds the two together roll for
+roll on fixtures this module writes: exactly at 2-ply, and at 3-ply except
+where the trimmed search's cut to five plays drops the best one.
 
 Cost is 21 checker searches, and at a checker play 21 cube decisions more: on
 an M-series Mac about 0.3s at 2-ply and 3s at 3-ply.

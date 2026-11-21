@@ -6,12 +6,20 @@
   "type": "module",
   "license": "MPL-2.0 AND MIT",
   "exports": {
-    ".": "./src/engine.js"
+    ".": "./src/engine.js",
+    "./dicemap.js": "./src/dicemap.js"
   },
   "scripts": {
     "build": "./build.sh",
     "fixtures": "uv run --no-project --with \"bgsage==$(cat bgsage.version)\" python -I scripts/fixtures.py",
-    "test": "node --test --test-timeout=600000 test/"
+    "test": "node --test --test-timeout=600000 test/",
+    "fixtures:dicemap": "cd .. && uv run python gvengine-js/scripts/dicemap_fixtures.py"
+  },
+  "peerDependencies": {
+    "@gammonview/gvformat": ">=3.1.2"
+  },
+  "devDependencies": {
+    "@gammonview/gvformat": "file:../gvformat-js"
   },
   "engines": {
     "node": ">=20"

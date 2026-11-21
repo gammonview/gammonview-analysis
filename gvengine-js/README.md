@@ -58,6 +58,23 @@ const { moves } = engine.checker({ board, dice: [3, 1] }, { ply: 3 });
 
 Calls are synchronous and can take seconds, so in a page this runs in a Worker.
 
+### The dice map
+
+`@gammonview/engine/dicemap.js` is XG's Dice Distribution over an engine:
+`dice_map(engine, ogid, {after, doubled, ply})` gives the equity after each of
+the 36 rolls at 2-ply or 3-ply — a cube decision's own rolls (after a double
+and a take with `doubled`), or a checker play's replies to the play leaving
+`after`, each marked with the cube decision it leaves. `dice_grid` and
+`die_averages` lay it out. It is the browser half of `gvanalysis.dicemap`, and
+imports `@gammonview/gvformat` for the OGID and the match equity table, so a
+page using it needs that package too (it is a peer dependency here).
+
+`test/dicemap.test.mjs` holds it to `dice_distribution`'s maps
+(`npm run fixtures:dicemap`, which needs the repo's own environment rather than
+bare bgsage): exactly at 2-ply, and at 3-ply except where the trimmed search's
+cut to five plays drops the best play, which the test allows once a map and
+only in the roller's disfavour.
+
 ## Two builds
 
 - **`gvengine.mjs`** runs anywhere. Leave `threads` at 1: it has no threads to
@@ -103,7 +120,7 @@ npm test          # skips when dist/ is absent
 `bgsage.version` is the one input. `build.sh` clones that tag of bgsage for the
 C++ and takes the networks from that wheel on PyPI, so the engine and its
 networks cannot come from different releases. Moving it: edit the file, rebuild,
-`npm run fixtures`, `npm test`. The test refuses fixtures from another version.
+`npm run fixtures`, `npm run fixtures:dicemap`, `npm test`. The test refuses fixtures from another version.
 
 The build compiles a patched copy of the sources, never the checkout. The one
 patch routes `neural_net.cpp` to its NEON path: wasm32 is neither x86 nor ARM,
