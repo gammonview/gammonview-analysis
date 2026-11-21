@@ -614,10 +614,10 @@ function emitDoubleResponse(cd, board, turn, scoreWhite, scoreBlack, matchLength
     double_take_equity: r4(cd.equDouble),
     double_pass_equity: r4(cd.equDrop),
     equity_loss: lostEquity,
-    // A double counts toward PR unless the cube is trivial AND the doubler
-    // made no error -- mirrors game_eval._eval_cube_decision (doubler_counts)
-    // and stats._missed_double_counts.
-    decision: !(trivialCube(cd.equB, cd.equDouble, cd.equDrop) && lostEquity < 0.001),
+    // A double that was made always counts toward PR (XG: "a double that
+    // results in a double is never obvious") -- mirrors
+    // game_eval._eval_cube_decision (doubler_counts).
+    decision: true,
   };
   if (_hasEval(probsNd, cd.evalNd[6])) dblAnalysis.eval = _probsToEval(probsNd);
   if (evalLevel) dblAnalysis.eval_level = evalLevel;
@@ -675,9 +675,10 @@ function emitDoubleResponse(cd, board, turn, scoreWhite, scoreBlack, matchLength
     double_take_equity: r4(cd.equDouble),
     double_pass_equity: r4(cd.equDrop),
     equity_loss: respLost,
-    // A take/pass counts toward PR unless it is trivial (take and pass
-    // equities within 0.001) -- mirrors game_eval (resp_counts).
-    decision: !trivialTakePass(cd.equDouble, cd.equDrop),
+    // A take always counts toward PR (XG: "a take is never obvious"); a pass
+    // unless take and pass are within 0.001 -- mirrors game_eval
+    // (resp_counts).
+    decision: hasTake || !trivialTakePass(cd.equDouble, cd.equDrop),
   };
   if (pendingNdEquity != null) respAnalysis.no_double_equity = pendingNdEquity;
   if (_hasEval(probsDt, cd.evalDt[6])) respAnalysis.eval = _probsToEval(probsDt);

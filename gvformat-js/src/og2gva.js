@@ -310,12 +310,11 @@ function _cubeActionAnalysis(cube, action) {
     : Math.abs(action === 'double' ? Math.min(dt, dp) - nd : dt - dp);
   const loss = Math.round(equity_loss * 10000) / 10000;
 
-  // A double counts toward PR unless the cube was trivial *and* the doubler
-  // got it right anyway; a take/pass counts unless the two branches are
-  // indistinguishable. Mirrors game_eval's doubler_counts / resp_counts.
-  const decision = action === 'double'
-    ? !(_trivialCube(nd, dt, dp) && loss < 0.001)
-    : !_trivialTakePass(dt, dp);
+  // A double or a take always counts toward PR (XG: neither is ever
+  // obvious); a pass counts unless the two branches are indistinguishable.
+  // Mirrors game_eval's doubler_counts / resp_counts.
+  const decision = action === 'double' || action === 'take'
+    || !_trivialTakePass(dt, dp);
 
   return {
     correct_action,

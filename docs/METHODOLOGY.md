@@ -68,7 +68,9 @@ error = actual_equity − min(DT, DP)
 actual = DT  if took,  else DP
 ```
 
-A take/pass decision is **not counted** when `|DT − DP| < 0.001` (correct response is ambiguous).
+A take is always counted. A pass is **not counted** when `|DT − DP| < 0.001` (correct response is ambiguous).
+
+Both exceptions for actual actions follow XG's definition of a decision: "a double that results in a double, and a take, are never obvious."
 
 ### Two-level upgrade path
 

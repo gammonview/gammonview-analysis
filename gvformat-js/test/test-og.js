@@ -280,19 +280,22 @@ assertEq(checkerPly([0.0023, 0.0021]).equity_loss, 0,
 assertEq(checkerPly([0.5, 0.4999, 0.2]).decision, true,
   'spread is max-min across all candidates, not the gap to the runner-up');
 
-// A take/pass whose two branches are indistinguishable is not a decision.
-{
+// A pass whose two branches are indistinguishable is not a decision; a take
+// always is (XG: "a take is never obvious").
+for (const [actionId, played, counts, label] of [
+  [23, 'drop', false, 'a pass with DT === DP is not a decision'],
+  [22, 'take', true, 'a take with DT === DP is still a decision'],
+]) {
   const base = baseDoc([0, 0]);
-  base.games[0].plies[1].action_id = 22;
+  base.games[0].plies[1].action_id = actionId;
   convertOg(base, {
     config: '2ply',
     games: [{ moves: [
       [OPENING_W, '25mhmk', [['2C', 'mhmk', 0.0023, 0.4977, 0.1486, 0.0077, 0.1415, 0.0066]], []],
-      [OPENING_W, 'take', [], ['2C', 0.502, 0.146, 0.008, 0.154, 0.009, 0.0, -0.6844, -1.0, -1.0]],
+      [OPENING_W, played, [], ['2C', 0.502, 0.146, 0.008, 0.154, 0.009, 0.0, -0.6844, -1.0, -1.0]],
     ] }],
   });
-  assertEq(base.games[0].plies[1].analysis.decision, false,
-    'a take/pass with DT === DP is not a decision');
+  assertEq(base.games[0].plies[1].analysis.decision, counts, label);
 }
 
 // ---------------------------------------------------------------------------

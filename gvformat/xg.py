@@ -765,10 +765,10 @@ def _emit_double_response(
         "double_take_equity": round(cd["equ_double"], 4),
         "double_pass_equity": round(cd["equ_drop"], 4),
         "equity_loss": lost_equity,
-        # A double counts toward PR unless the cube is trivial AND the doubler
-        # made no error -- mirrors game_eval._eval_cube_decision (doubler_counts)
-        # and stats._missed_double_counts.
-        "decision": not (_trivial_cube(cd["equ_b"], cd["equ_double"], cd["equ_drop"]) and lost_equity < 0.001),
+        # A double that was made always counts toward PR (XG: "a double that
+        # results in a double is never obvious") -- mirrors
+        # game_eval._eval_cube_decision (doubler_counts).
+        "decision": True,
         "eval": _probs_to_eval(probs_nd) if _has_eval(probs_nd, cd["eval_nd"][6]) else {},
     }
     if eval_level:
@@ -830,9 +830,10 @@ def _emit_double_response(
         "double_take_equity": round(cd["equ_double"], 4),
         "double_pass_equity": round(cd["equ_drop"], 4),
         "equity_loss": resp_lost,
-        # A take/pass counts toward PR unless it is trivial (take and pass
-        # equities within 0.001) -- mirrors game_eval (resp_counts).
-        "decision": not _trivial_take_pass(cd["equ_double"], cd["equ_drop"]),
+        # A take always counts toward PR (XG: "a take is never obvious"); a
+        # pass unless take and pass are within 0.001 -- mirrors game_eval
+        # (resp_counts).
+        "decision": has_take or not _trivial_take_pass(cd["equ_double"], cd["equ_drop"]),
     }
     if pending_nd_equity is not None:
         resp_analysis["no_double_equity"] = pending_nd_equity

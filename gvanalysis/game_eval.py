@@ -526,7 +526,9 @@ def _eval_cube_decision(dec: dict, ctx: _EvalCtx) -> _DecResult:
     actual_d = min(dt, dp) if doubled else nd
     doubler_err = max(0.0, optimal - actual_d)
     trivial = _trivial_cube(nd, dt, dp)
-    doubler_counts = not (trivial and doubler_err < 0.001)
+    # A double that was made always counts (XG: "a double that results in a
+    # double is never obvious"); a no-double only if the cube was in question.
+    doubler_counts = doubled or not (trivial and doubler_err < 0.001)
 
     if doubler_counts:
         if dec["is_doubler_p1"]:
@@ -584,7 +586,9 @@ def _eval_cube_decision(dec: dict, ctx: _EvalCtx) -> _DecResult:
 
     # Responder error (only on double turns with a response)
     if doubled and dec["response"] is not None:
-        resp_counts = not _trivial_take_pass(dt, dp)
+        # A take always counts (XG: "a take is never obvious"); a pass only
+        # if taking was distinguishable from it.
+        resp_counts = dec["response"] == "take" or not _trivial_take_pass(dt, dp)
         resp_err_raw = 0.0
         if resp_counts:
             optimal_r = min(dt, dp)
