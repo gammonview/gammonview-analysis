@@ -788,6 +788,60 @@ def _eval_resign_decision(dec: dict, ctx: _EvalCtx) -> _DecResult:
     return res
 
 
+def _score_illegal_play(dec: dict, ctx: _EvalCtx, res: _DecResult, analyzer,
+                        best_eq: float, eval_level: str, played_notation: str,
+                        ) -> tuple[float, float, dict] | None:
+    """Score a play that is not among the legal ones: its error against
+    ``best_eq``, its equity, and the alternative that shows it. Counts it in
+    ``res.illegal_moves``, and toward PR only under ``count_illegal``. None if
+    the engine cannot evaluate the board it produced."""
+    die1, die2 = dec["dice"]
+    res.illegal_moves += 1
+    if ctx.verbose:
+        print(
+            f"  Warning: played board not found in Sage's move list "
+            f"(game {ctx.game['game_number']}, "
+            f"turn {dec.get('notation', '?')!r}, "
+            f"dice {die1}{die2})"
+        )
+    try:
+        post = analyzer.post_move_analytics(
+            dec["board_played"],
+            cube_owner=dec["cube_owner"],
+            cube_value=dec["cube_value"],
+            away1=dec["away1"],
+            away2=dec["away2"],
+            is_crawford=dec["is_crawford"],
+            # bgsage takes no beaver rule here.
+            jacoby=ctx.rules(dec)["jacoby"],
+        )
+    except Exception as e:
+        if ctx.verbose:
+            print(f"  post_move_analytics error (illegal move): {e}")
+        return None
+    played_eq = float(post.cubeful_equity)
+    checker_err = max(0.0, best_eq - played_eq)
+    opt: dict = {
+        "move": played_notation,
+        "equity": round(played_eq, 4),
+        "eval_level": ctx.eval_label(eval_level),
+        "probs": _probs_list(post.probs),
+        "played": True,
+        "illegal_move": True,
+    }
+    mwc = _eq2mwc(played_eq, dec["away1"], dec["away2"], dec["cube_value"], dec["is_crawford"])
+    if mwc is not None:
+        opt["mwc"] = mwc
+    if ctx.count_illegal:
+        if dec["is_p1"]:
+            res.p1_err += checker_err
+            res.p1_dec += 1
+        else:
+            res.p2_err += checker_err
+            res.p2_dec += 1
+    return checker_err, played_eq, opt
+
+
 def _eval_checker_decision(dec: dict, ctx: _EvalCtx) -> _DecResult:
     _require_playable(dec, ctx)
     res = _DecResult()
@@ -801,6 +855,7 @@ def _eval_checker_decision(dec: dict, ctx: _EvalCtx) -> _DecResult:
                                                 die1, die2))
     analyzed = False
     illegal_move = False
+    checker_upgraded = False
     checker_err: float | None = None
     played_eq: float | None = None
     best_eq: float | None = None
@@ -822,6 +877,13 @@ def _eval_checker_decision(dec: dict, ctx: _EvalCtx) -> _DecResult:
     # if a recorded no-play somehow has real moves available, that is a broken
     # record, not a decision to score, and it is left alone as before.
     legal = possible_moves(dec["board"], die1, die2)
+    # Whether the play is legal is a question about the dice and the board, so
+    # it is asked here, once, and not left to each branch below to infer from
+    # not finding the played move: a forced move has nothing to search, and an
+    # already-decided position never searches. A source can record a play the
+    # dice cannot produce (a 2-1 written ``10/6``), and either branch would have
+    # shown it as an ordinary play.
+    played_legal = tuple(dec["board_played"]) in {tuple(b) for b in legal}
     if len(legal) == 1:
         try:
             cheap = ctx.base_analyzer if ctx.base_analyzer is not None else ctx.analyzer
@@ -844,12 +906,22 @@ def _eval_checker_decision(dec: dict, ctx: _EvalCtx) -> _DecResult:
                     "equity": round(eq, 4),
                     "eval_level": ctx.eval_label(m.eval_level),
                     "probs": _probs_list(m.probs),
-                    "played": True,
                 }
+                if played_legal:
+                    opt["played"] = True
                 mwc = _eq2mwc(eq, dec["away1"], dec["away2"], dec["cube_value"], dec["is_crawford"])
                 if mwc is not None:
                     opt["mwc"] = mwc
                 alternatives = [opt]
+                if not played_legal:
+                    illegal_move = True
+                    scored = _score_illegal_play(
+                        dec, ctx, res, cheap, eq, m.eval_level, played_notation)
+                    if scored is not None:
+                        checker_err, played_eq, illegal_opt = scored
+                        best_eq = eq
+                        analyzed = True
+                        alternatives.append(illegal_opt)
         except Exception as e:
             if ctx.verbose:
                 print(f"  checker_play error (forced): {e}")
@@ -1038,50 +1110,13 @@ def _eval_checker_decision(dec: dict, ctx: _EvalCtx) -> _DecResult:
                                 print(f"  post_move_analytics error: {e}")
                     if checker_err is None:
                         illegal_move = True
-                        res.illegal_moves += 1
-                        if ctx.verbose:
-                            print(
-                                f"  Warning: played board not found in Sage's move list "
-                                f"(game {ctx.game['game_number']}, "
-                                f"turn {dec.get('notation', '?')!r}, "
-                                f"dice {die1}{die2})"
-                            )
-                        try:
-                            post = tier_analyzer.post_move_analytics(
-                                dec["board_played"],
-                                cube_owner=dec["cube_owner"],
-                                cube_value=dec["cube_value"],
-                                away1=dec["away1"],
-                                away2=dec["away2"],
-                                is_crawford=dec["is_crawford"],
-                                # bgsage takes no beaver rule here.
-                                jacoby=ctx.rules(dec)["jacoby"],
-                            )
-                            played_eq = float(post.cubeful_equity)
-                            checker_err = max(0.0, best_eq - played_eq)
+                        scored = _score_illegal_play(
+                            dec, ctx, res, tier_analyzer, best_eq,
+                            moves[0].eval_level, played_notation)
+                        if scored is not None:
+                            checker_err, played_eq, illegal_opt = scored
                             analyzed = True
-                            illegal_opt: dict = {
-                                "move": played_notation,
-                                "equity": round(played_eq, 4),
-                                "eval_level": ctx.eval_label(moves[0].eval_level),
-                                "probs": _probs_list(post.probs),
-                                "played": True,
-                                "illegal_move": True,
-                            }
-                            ill_mwc = _eq2mwc(played_eq, dec["away1"], dec["away2"], dec["cube_value"], dec["is_crawford"])
-                            if ill_mwc is not None:
-                                illegal_opt["mwc"] = ill_mwc
                             alternatives.append(illegal_opt)
-                            if ctx.count_illegal:
-                                if dec["is_p1"]:
-                                    res.p1_err += checker_err
-                                    res.p1_dec += 1
-                                else:
-                                    res.p2_err += checker_err
-                                    res.p2_dec += 1
-                        except Exception as e:
-                            if ctx.verbose:
-                                print(f"  post_move_analytics error (illegal move): {e}")
                     else:
                         analyzed = True
                         if dec["is_p1"]:
@@ -1119,6 +1154,16 @@ def _eval_checker_decision(dec: dict, ctx: _EvalCtx) -> _DecResult:
                             if is_played:
                                 opt["played"] = True
                             alternatives.append(opt)
+                    if not played_legal:
+                        illegal_move = True
+                        scored = _score_illegal_play(
+                            dec, ctx, res, cheap, best_eq_b,
+                            cheap_moves[0].eval_level, played_notation)
+                        if scored is not None:
+                            checker_err, played_eq, illegal_opt = scored
+                            best_eq = best_eq_b
+                            analyzed = True
+                            alternatives.append(illegal_opt)
         except Exception as e:
             if ctx.verbose:
                 print(f"  checker_play error: {e}")
