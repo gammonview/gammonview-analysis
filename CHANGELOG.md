@@ -13,6 +13,23 @@ when the repository was opened; they are kept because they record why things
 are the way they are — particularly the breaking changes and the measurements
 behind several design decisions. Dates are the tag dates.
 
+## 3.7.0 — 2026-11-21
+
+**The dice distribution of a position** *(added)*
+
+`gvanalysis.dicemap.dice_distribution` is XG's Dice Distribution as a library
+call. At a cube decision it gives the side on roll's equity after each of the
+36 rolls' best plays, with each die's average; `doubled=True` gives the rolls
+after a double and a take, in the cube before the double, so the average sits
+beside `double_take_equity` at money and at a match score alike. At a checker
+play it gives the opponent's replies to one play, in the mover's equity, and
+marks each with the cube decision it leaves when the cube is the mover's to
+turn: double/take, double/pass or too good. That is a map XG does not draw, and
+the one that shows why one play beats another. Any n-ply level, 2-ply by
+default: about 0.3s a map, 3s at 3-ply. `gvan-position --dice` prints it, with
+`--play` and `--after-take`. GammonView's position analyser draws the same map
+in the browser and is held to these numbers roll for roll.
+
 ## 3.6.2 — 2026-11-21
 
 **An illegal play is flagged wherever it lands** *(fixed)*
