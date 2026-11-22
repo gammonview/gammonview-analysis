@@ -38,8 +38,8 @@ an M-series Mac about 0.3s at 2-ply and 3s at 3-ply.
 ``market_losers`` takes a cube map one roll further: for each of our rolls,
 their 21 replies and our cube after each, counting the sequences where we
 would double and they would pass. That is 441 replies and cube decisions, read
-a ply below the map: about 10s at 2-ply, nearly all of it the 1-ply cube
-decisions.
+a ply below the map: under a second at 2-ply, where the cube decisions go to
+bgsage as one batch (``_our_cubes`` says why).
 """
 
 from __future__ import annotations
@@ -150,7 +150,11 @@ def _our_cube(analyzer, ours: dict) -> str | None:
     "double_take" or "double_pass" for a correct double, "too_good" for a
     position that would be a pass but is better played on, None for no
     double."""
-    action = analyzer.cube_action(ours["board"], **_engine_kwargs(ours))
+    return _cube_mark(analyzer.cube_action(ours["board"], **_engine_kwargs(ours)))
+
+
+def _cube_mark(action) -> str | None:
+    """A ``CubeActionResult`` as ``_our_cube`` names it."""
     if action.should_double:
         return "double_take" if action.should_take else "double_pass"
     return None if action.should_take else "too_good"
@@ -340,6 +344,9 @@ def market_losers(
     started = time.perf_counter()
     ours = _our_side(state, jacoby, beaver)
     rolls = []
+    # Every sequence's board, gathered first so the cube decisions can go
+    # to bgsage in one batch: (our roll's row, the reply's weight, our side).
+    sequences = []
     for r in _sweep(analyzer, ours):
         row = {"dice": r["dice"], "weight": r["weight"], "pass": 0, "too_good": 0}
         rolls.append(row)
@@ -349,13 +356,13 @@ def market_losers(
         theirs = _other_side(ours, r["board"])
         for reply in _sweep(reply_analyzer, theirs):
             # Their last checker off: a game lost, not a market.
-            if _borne_off(reply["board"]):
-                continue
-            cube = _our_cube(reply_analyzer, {**ours, "board": flip_board(reply["board"])})
-            if cube == "double_pass":
-                row["pass"] += reply["weight"]
-            elif cube == "too_good":
-                row["too_good"] += reply["weight"]
+            if not _borne_off(reply["board"]):
+                sequences.append((row, reply["weight"], {**ours, "board": flip_board(reply["board"])}))
+    for (row, weight, _), cube in zip(sequences, _our_cubes(reply_analyzer, reply_level, [s for *_, s in sequences])):
+        if cube == "double_pass":
+            row["pass"] += weight
+        elif cube == "too_good":
+            row["too_good"] += weight
     return {
         "position_id": position_id.strip(),
         "eval_level": level,
@@ -364,6 +371,30 @@ def market_losers(
         "rolls": rolls,
         "elapsed": round(time.perf_counter() - started, 3),
     }
+
+
+def _our_cubes(analyzer, level: str, sides: list[dict]) -> list[str | None]:
+    """``_our_cube`` for each of `sides`, at `level`.
+
+    At 1-ply, through ``bgsage.batch_cube_action``, which loads the networks
+    once for the batch. ``BgBotAnalyzer.cube_action`` at 1-ply hands bgsage
+    the weight files to load on every call: about 23ms each, which is 10s for
+    a market count, where the batch takes a tenth of a second. Both read
+    Janowski's cube off the same 1-ply probabilities, and agree exactly.
+    Deeper, the batch would not be the same reading -- it puts Janowski on the
+    n-ply probabilities rather than searching the cube -- so each side goes to
+    the analyzer, which keeps its networks loaded at n-ply.
+    """
+    if level != "1ply":
+        return [_our_cube(analyzer, side) for side in sides]
+    from bgsage import batch_cube_action
+
+    if not sides:
+        return []
+    keys = ("board", "cube_value", "cube_owner", "away1", "away2", "is_crawford")
+    results = batch_cube_action([{k: side[k] for k in keys} for side in sides], eval_level="1ply",
+                                jacoby=sides[0]["jacoby"], beaver=sides[0]["beaver"])
+    return [_cube_mark(action) for action in results]
 
 
 def print_market_losers(result: dict) -> None:

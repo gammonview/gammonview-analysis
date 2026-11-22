@@ -24,9 +24,10 @@ and each roll's count out of its 36 replies, with too good counted separately.
 Our roll is played at the map's level and the reply one ply below, as XG's
 "1st roll 2-ply, 2nd roll 1-ply". It is None where there is no market to lose:
 a checker play, the opponent's cube, the Crawford game. `gvan-position --dice`
-prints it under a cube map. About 10s natively at 2-ply. `@gammonview/engine`
-1.1.0 has the same count in the browser, in under a second, and is held to
-these numbers roll for roll.
+prints it under a cube map. Under a second at 2-ply: the 1-ply cube decisions
+go to bgsage as one batch, since `BgBotAnalyzer.cube_action` at 1-ply reloads
+the networks on every call. `@gammonview/engine` 1.1.0 has the same count in
+the browser and is held to these numbers roll for roll.
 
 ## 3.7.0 — 2026-11-21
 

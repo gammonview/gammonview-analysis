@@ -18,7 +18,9 @@ not the engine's numbers, which other tests own:
   5. **A bad request is a ``DiceMapError``**, an unknown level a ``ValueError``.
   6. **Market losers are the reply map one roll out.** A roll's count is the
      D/P and TG marks of the reply map to its play, one ply shallower; and
-     there are none to count where the cube is not ours to turn.
+     there are none to count where the cube is not ours to turn. Their 1-ply
+     cube decisions go to bgsage as one batch, which must read every one as
+     ``cube_action`` does -- the check a bgsage upgrade has to pass.
 
 Requires the bgsage engine (the ``[engine]`` extra).
 
@@ -34,8 +36,10 @@ from pathlib import Path
 _REPO_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(_REPO_ROOT))
 
-from gvanalysis.dicemap import DiceMapError, dice_distribution, market_losers
-from gvanalysis.position import analyze_position
+from gvanalysis.dicemap import (DiceMapError, _our_cube, _our_cubes, _our_side, _other_side,
+                               _sweep, dice_distribution, market_losers)
+from gvformat.ogid import flip_board
+from gvanalysis.position import analyze_position, parse_position_id
 
 _checks = 0
 _failures: list[str] = []
@@ -137,6 +141,16 @@ def main() -> int:
     check(market_losers(CHECKER_MATCH) is None, "none at a checker play")
     check(market_losers("3cccccehhhjjjjj:1666677888dddlo:W1N::W:C:0:0:0:0") is None, "none with their cube")
     raises(lambda: market_losers(CUBE_MONEY, level="1ply"), ValueError, "no reply level below 1-ply")
+    from bgsage import BgBotAnalyzer
+    one = BgBotAnalyzer(eval_level="1ply", cubeful=True)
+    for ogid in (CUBE_MONEY, CUBE_MATCH):
+        ours = _our_side(parse_position_id(ogid), None, None)
+        sides = [{**ours, "board": flip_board(reply["board"])}
+                 for r in _sweep(one, ours)[::4]
+                 for reply in _sweep(one, _other_side(ours, r["board"]))]
+        batch = _our_cubes(one, "1ply", sides)
+        check(batch == [_our_cube(one, side) for side in sides],
+              f"the batched 1-ply cube reads {len(sides)} positions as cube_action does: {ogid}")
 
     print(f"\n{_checks - len(_failures)}/{_checks} checks passed.")
     if _failures:
