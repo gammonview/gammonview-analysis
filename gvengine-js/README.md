@@ -93,6 +93,12 @@ double and they would pass, with each roll's count out of its 36 replies. Our
 roll is played at `ply`, their reply and our cube one ply below. Under a second
 at 2-ply on one thread; at 3-ply, 4–13 seconds.
 
+A position already past its market -- a double/pass, or too good -- has none to
+lose, so the same count also gives its market gainers: the sequences that bring
+the opponent back in (no double, or a double they would take) or win them the
+game, which is what waiting costs. `decision` is the position's own cube
+decision at `ply`, and says which of the two to read.
+
 `test/dicemap.test.mjs` holds it to `dice_distribution`'s maps
 (`npm run fixtures:dicemap`, which needs the repo's own environment rather than
 bare bgsage): exactly at 2-ply, and at 3-ply except where the trimmed search's

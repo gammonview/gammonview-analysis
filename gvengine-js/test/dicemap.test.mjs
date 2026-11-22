@@ -89,6 +89,8 @@ test("market_losers counts gvanalysis's market losers", { skip }, async (t) => {
                 if (want.market === null) return assert.equal(got, null);
                 assert.equal(got.pass, want.market.pass);
                 assert.equal(got.too_good, want.market.too_good);
+                assert.equal(got.gainers, want.market.gainers);
+                assert.equal(got.decision, want.market.decision);
                 assert.deepEqual(got.rolls, want.market.rolls);
             });
         }

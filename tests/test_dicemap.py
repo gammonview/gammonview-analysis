@@ -18,7 +18,9 @@ not the engine's numbers, which other tests own:
   5. **A bad request is a ``DiceMapError``**, an unknown level a ``ValueError``.
   6. **Market losers are the reply map one roll out.** A roll's count is the
      D/P and TG marks of the reply map to its play, one ply shallower; and
-     there are none to count where the cube is not ours to turn. Their 1-ply
+     there are none to count where the cube is not ours to turn. Past the
+     market -- a pass, or too good -- the gainers are the rest of its marks.
+     Their 1-ply
      cube decisions go to bgsage as one batch, which must read every one as
      ``cube_action`` does -- the check a bgsage upgrade has to pass.
 
@@ -50,6 +52,8 @@ NEAR = 0.04
 CUBE_MONEY = "3cccccehhhjjjjj:1666677888dddlo:N0N::W:C:0:0:0:0"
 CUBE_OURS = "00ccccchhhjjjjj:22446677888abfm:W1N::B:C:1:1:1:0"
 CUBE_MATCH = "ccccchiijjjllnn:33444566688ddoo:N0N::B:C:5:3:9:0"
+#: Too good: a closeout at a match score, where gammons count.
+CUBE_TOO_GOOD = "hhjjjkkklllmmnn:555666888ddddpp:N0N::B::0:0:7:0"
 #: Checker plays: a match score, cube centred; money, their cube; a last roll.
 CHECKER_MATCH = "cceeeehhjjjkkkm:1123344666ggllo:N0N:43:B:R:2:1:7:0"
 CHECKER_THEIRS = "33ccjjjkkmmnooo:22244555666677e:B1N:11:B:R:1:3:4:0"
@@ -129,6 +133,15 @@ def main() -> int:
     check(market is not None and len(market["rolls"]) == 21, "21 of our rolls")
     check(market["pass"] == sum(r["weight"] * r["pass"] for r in market["rolls"]), "the total weights each roll")
     check(all(0 <= r["pass"] + r["too_good"] <= 36 for r in market["rolls"]), "each roll out of 36 replies")
+    check(market["decision"] in (None, "double_take"), "below the pass line: the losers are the count")
+    for ogid, decision in ((CUBE_MONEY, market["decision"]), (CUBE_MATCH, "double_pass"),
+                           (CUBE_TOO_GOOD, "too_good")):
+        counted = market if ogid == CUBE_MONEY else market_losers(ogid)
+        check(counted["decision"] == decision, f"the position's own decision: {decision}")
+        check(all(r["pass"] + r["too_good"] + r["gainers"] == 36 for r in counted["rolls"]),
+              "every reply a loser or a gainer, never both")
+        check(counted["gainers"] == sum(r["weight"] * r["gainers"] for r in counted["rolls"]),
+              "the gainers weight each roll")
     roll = max(market["rolls"], key=lambda r: r["pass"] + r["too_good"])
     check(roll["pass"] + roll["too_good"] > 0, "this position has market losers")
     a, b = roll["dice"]
@@ -138,6 +151,15 @@ def main() -> int:
     lost = {k: sum(r["weight"] for r in replies["rolls"] if r.get("cube") == k) for k in ("double_pass", "too_good")}
     check((roll["pass"], roll["too_good"]) == (lost["double_pass"], lost["too_good"]),
           f"{a}-{b}: {roll['pass']}+{roll['too_good']} as its 1-ply reply map marks them")
+    tg = market_losers(CUBE_TOO_GOOD)
+    roll = max(tg["rolls"], key=lambda r: r["gainers"])
+    check(roll["gainers"] > 0, "this too-good position has market gainers")
+    a, b = roll["dice"]
+    with_dice = CUBE_TOO_GOOD.replace("N0N::B::", f"N0N:{a}{b}:B:R:")
+    play = dice_distribution(with_dice)["play"]
+    replies = dice_distribution(with_dice, level="1ply", play=play)
+    back = sum(r["weight"] for r in replies["rolls"] if r.get("cube") in (None, "double_take"))
+    check(roll["gainers"] == back, f"{a}-{b}: {roll['gainers']} gainers as its 1-ply reply map marks them")
     check(market_losers(CHECKER_MATCH) is None, "none at a checker play")
     check(market_losers("3cccccehhhjjjjj:1666677888dddlo:W1N::W:C:0:0:0:0") is None, "none with their cube")
     raises(lambda: market_losers(CUBE_MONEY, level="1ply"), ValueError, "no reply level below 1-ply")

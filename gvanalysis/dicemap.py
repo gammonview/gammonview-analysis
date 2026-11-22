@@ -319,13 +319,20 @@ def market_losers(
     is as lost. Their cube is not consulted after our roll, as in any count of
     market losers.
 
+    A position already past the market has none to lose, so the same sweep
+    counts its market gainers: the sequences that bring the opponent back in
+    -- no double, or a double they would take -- or win them the game. They
+    are what waiting costs, at a pass and at too good alike. ``decision`` is
+    the position's own cube decision at ``level``, named as ``_our_cube``
+    names it, which says which count is the one to read.
+
     ``analyzer`` is a ``BgBotAnalyzer`` at ``level`` and ``reply_analyzer``
     one a ply below it, each built when None.
 
-    Returns ``{"position_id", "eval_level", "pass", "too_good", "rolls",
-    "elapsed"}``, ``pass`` and ``too_good`` out of 1296 sequences, and each of
-    the 21 ``rolls`` ``{"dice", "weight", "pass", "too_good"}`` out of its 36
-    replies. None where there is no market to lose: a checker play, the cube
+    Returns ``{"position_id", "eval_level", "decision", "pass", "too_good",
+    "gainers", "rolls", "elapsed"}``, the counts out of 1296 sequences, and
+    each of the 21 ``rolls`` ``{"dice", "weight", "pass", "too_good",
+    "gainers"}`` out of its 36 replies. None where there is no market to lose: a checker play, the cube
     theirs, the Crawford game. ``ValueError`` for another level.
     """
     import time
@@ -343,31 +350,39 @@ def market_losers(
 
     started = time.perf_counter()
     ours = _our_side(state, jacoby, beaver)
+    decision = _our_cube(analyzer, ours)
     rolls = []
     # Every sequence's board, gathered first so the cube decisions can go
     # to bgsage in one batch: (our roll's row, the reply's weight, our side).
     sequences = []
     for r in _sweep(analyzer, ours):
-        row = {"dice": r["dice"], "weight": r["weight"], "pass": 0, "too_good": 0}
+        row = {"dice": r["dice"], "weight": r["weight"], "pass": 0, "too_good": 0, "gainers": 0}
         rolls.append(row)
         # Our last checker off: the game is over, with no market in it.
         if _borne_off(r["board"]):
             continue
         theirs = _other_side(ours, r["board"])
         for reply in _sweep(reply_analyzer, theirs):
-            # Their last checker off: a game lost, not a market.
-            if not _borne_off(reply["board"]):
+            # Their last checker off: a game lost -- no market, but what
+            # cashing would have saved.
+            if _borne_off(reply["board"]):
+                row["gainers"] += reply["weight"]
+            else:
                 sequences.append((row, reply["weight"], {**ours, "board": flip_board(reply["board"])}))
     for (row, weight, _), cube in zip(sequences, _our_cubes(reply_analyzer, reply_level, [s for *_, s in sequences])):
         if cube == "double_pass":
             row["pass"] += weight
         elif cube == "too_good":
             row["too_good"] += weight
+        else:
+            row["gainers"] += weight
     return {
         "position_id": position_id.strip(),
         "eval_level": level,
+        "decision": decision,
         "pass": sum(r["weight"] * r["pass"] for r in rolls),
         "too_good": sum(r["weight"] * r["too_good"] for r in rolls),
+        "gainers": sum(r["weight"] * r["gainers"] for r in rolls),
         "rolls": rolls,
         "elapsed": round(time.perf_counter() - started, 3),
     }
@@ -398,16 +413,23 @@ def _our_cubes(analyzer, level: str, sides: list[dict]) -> list[str | None]:
 
 
 def print_market_losers(result: dict) -> None:
-    """The count, and the rolls that lose the market on some reply."""
-    lost = result["pass"] + result["too_good"]
-    line = f"  Market losers: {lost} of 1296 sequences ({lost / 12.96:.1f}%)"
-    if result["too_good"]:
-        line += f", {result['too_good']} of them too good"
-    print(line + ".")
+    """The count that matters, and the rolls it falls on: market losers below
+    the pass line, market gainers at a pass or too good."""
+    if result["decision"] in ("double_pass", "too_good"):
+        said = {"double_pass": "a double/pass", "too_good": "too good"}[result["decision"]]
+        n = result["gainers"]
+        print(f"  Market gainers: {n} of 1296 sequences ({n / 12.96:.1f}%) -- {said} at {result['eval_level']}.")
+        count = lambda r: r["gainers"]
+    else:
+        n = result["pass"] + result["too_good"]
+        line = f"  Market losers: {n} of 1296 sequences ({n / 12.96:.1f}%)"
+        if result["too_good"]:
+            line += f", {result['too_good']} of them too good"
+        print(line + ".")
+        count = lambda r: r["pass"] + r["too_good"]
     for r in result["rolls"]:
-        n = r["pass"] + r["too_good"]
-        if n:
-            print(f"    {r['dice'][0]}-{r['dice'][1]}: {n} of 36 replies")
+        if count(r):
+            print(f"    {r['dice'][0]}-{r['dice'][1]}: {count(r)} of 36 replies")
 
 
 _CUBE_TAG = {"double_take": "D/T", "double_pass": "D/P", "too_good": "TG"}

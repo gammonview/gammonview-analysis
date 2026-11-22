@@ -8,7 +8,7 @@ test are `dice_distribution`'s, which is the map's other half. Each position is
 mapped at 2-ply and 3-ply -- a cube decision as it stands and, where the side
 on roll may double, after a double and a take; a checker play's replies to its
 best play, with `after` the OGID that play leaves, which is what `dice_map`
-takes. A cube decision's 2-ply map carries its `market_losers` too, null where
+takes. A cube decision's 2-ply map carries its `market_losers` (and gainers) too, null where
 there is no market to lose. Regenerate when bgsage.version moves; the test refuses fixtures from
 another version.
 """
@@ -26,6 +26,7 @@ POSITIONS = [
     "00ccccchhhjjjjj:22446677888abfm:W1N::B:C:1:1:1:0",      # money, ours at 2
     "ccccchiijjjllnn:33444566688ddoo:N0N::B:C:5:3:9:0",      # 9-point match
     "44bbccccehhjjkk:11666888ddgiinp:N0N::W:C:3:2:8:0",      # 8-point match
+    "hhjjjkkklllmmnn:555666888ddddpp:N0N::B::0:0:7:0",      # too good: market gainers
     "cceeeehhjjjkkkm:1123344666ggllo:N0N:43:B:R:2:1:7:0",    # replies, a double after many
     "33ccjjjkkmmnooo:22244555666677e:B1N:11:B:R:1:3:4:0",    # replies, their cube
     "00cccehhhhjjjjj:1133666788dddoo:N0N:52:B:R:3:3:3:0",    # replies from the bar
@@ -60,7 +61,7 @@ for ogid in POSITIONS:
             # Market losers at 2-ply only: at 3-ply each is a minute natively.
             if ply == 2 and not doubled:
                 market = market_losers(ogid, level=level)
-                entry["market"] = market and {k: market[k] for k in ("pass", "too_good", "rolls")}
+                entry["market"] = market and {k: market[k] for k in ("decision", "pass", "too_good", "gainers", "rolls")}
             maps.append(entry)
 
 out = Path(__file__).resolve().parent.parent / "test" / "fixtures" / "dicemap.json"

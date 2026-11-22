@@ -109,7 +109,11 @@ function sweep(engine, position, ply, threads) {
  * on. Null when we would not double.
  */
 function our_cube(engine, replier, board, ply, threads) {
-    const cube = engine.cube(other_side(replier, board), { ply, threads });
+    return cube_mark(engine.cube(other_side(replier, board), { ply, threads }));
+}
+
+/** An engine cube decision as `our_cube` names it. */
+function cube_mark(cube) {
     if (cube.should_double) return cube.should_take ? "double_take" : "double_pass";
     return cube.should_take ? null : "too_good";
 }
@@ -227,14 +231,22 @@ export function dice_map(engine, position_id, {
  * only to a position better played on. Their cube is not consulted after our
  * roll, as in any count of market losers.
  *
+ * A position already past the market has none to lose, so the same sweep
+ * counts its market gainers too: the sequences that bring the opponent back
+ * in -- no double, or a double they would take -- or win them the game. They
+ * are what waiting costs, at a pass and at too good alike; a too-good
+ * position that falls to a pass has lost nothing, since it cashes next turn.
+ * `decision` is the position's own cube decision at `ply`, named as a reply
+ * map's marks are, which says which of the two counts is the one to read.
+ *
  * @param {object} engine  a `gvengine.js` engine
  * @param {string} position_id  the cube decision, as `dice_map` takes it
  * @param {object} [options]  `ply`, `jacoby`, `beaver`, `threads`, as for `dice_map`
- * @returns {{ply: number, pass: number, too_good: number,
- *   rolls: {dice: number[], weight: number, pass: number, too_good: number}[]}|null}
- *   `pass` and `too_good` out of 1296 sequences; each roll's out of their 36
- *   replies. Null where there is no market to lose: a checker play, the cube
- *   theirs, the Crawford game, a double already offered.
+ * @returns {{ply: number, decision: string|null, pass: number, too_good: number, gainers: number,
+ *   rolls: {dice: number[], weight: number, pass: number, too_good: number, gainers: number}[]}|null}
+ *   The counts out of 1296 sequences; each roll's out of their 36 replies.
+ *   Null where there is no market to lose: a checker play, the cube theirs,
+ *   the Crawford game, a double already offered.
  */
 export function market_losers(engine, position_id, { ply = 2, jacoby = true, beaver = true, threads = 1 } = {}) {
     if (![2, 3].includes(ply)) throw new Error(`market losers are read at 2-ply or 3-ply, not ${ply}`);
@@ -242,22 +254,25 @@ export function market_losers(engine, position_id, { ply = 2, jacoby = true, bea
     const state = parseOgid(position_id);
     const money = !state.away1 && !state.away2;
     const ours = engine_position(state, { jacoby: jacoby && money, beaver: beaver && money });
+    const decision = cube_mark(engine.cube(ours, { ply, threads }));
     const rolls = sweep(engine, ours, ply, threads).map(({ dice, weight, board }) => {
-        const out = { dice, weight, pass: 0, too_good: 0 };
+        const out = { dice, weight, pass: 0, too_good: 0, gainers: 0 };
         // Our last checker off: the game is over, with no market in it.
         if (borne_off(board)) return out;
         const theirs = other_side(ours, board);
         for (const reply of sweep(engine, theirs, ply - 1, threads)) {
-            // Their last checker off: a game lost, not a market.
-            if (borne_off(reply.board)) continue;
+            // Their last checker off: a game lost -- no market, but what
+            // cashing would have saved.
+            if (borne_off(reply.board)) { out.gainers += reply.weight; continue; }
             const cube = our_cube(engine, theirs, reply.board, ply - 1, threads);
             if (cube === "double_pass") out.pass += reply.weight;
             else if (cube === "too_good") out.too_good += reply.weight;
+            else out.gainers += reply.weight;
         }
         return out;
     });
     const total = (key) => rolls.reduce((t, r) => t + r.weight * r[key], 0);
-    return { ply, pass: total("pass"), too_good: total("too_good"), rolls };
+    return { ply, decision, pass: total("pass"), too_good: total("too_good"), gainers: total("gainers"), rolls };
 }
 
 /**

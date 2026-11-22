@@ -29,6 +29,13 @@ go to bgsage as one batch, since `BgBotAnalyzer.cube_action` at 1-ply reloads
 the networks on every call. `@gammonview/engine` 1.1.0 has the same count in
 the browser and is held to these numbers roll for roll.
 
+At a position already past its market -- a double/pass, or too good -- the
+count is of **market gainers** instead: the sequences that bring the opponent
+back in, at no double or a double they would take, or win them the game. That
+is what waiting costs, and a too-good position that falls only to a pass has
+lost nothing. The result carries the position's own `decision` at the map's
+level, which says which count to read, and `--dice` prints that one.
+
 ## 3.7.0 — 2026-11-21
 
 **The dice distribution of a position** *(added)*
